@@ -1,64 +1,96 @@
+import json
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from src.config import MLPConfig
-from src.data import FeatureDataset, make_synthetic_data
-from src.modules.model import MLPClassifier
+from src.config import SEDConfig
+from src.data import SEDDataset, build_targets, collate, write_meta
+from src.modules.events import Event
+from src.modules.model import BoundaryAwareCRNN
 from src.pipelines.eval import eval_per_epoch, evaluate, format_report
 
 
-def make_loader(n=200, input_dim=12, num_classes=3, seed=0):
-    x, y = make_synthetic_data(
-        n_samples=n, n_features=input_dim, n_classes=num_classes, seed=seed
+def make_cfg(**overrides) -> SEDConfig:
+    base = dict(
+        num_classes=2,
+        num_frames=100,
+        n_mels=16,
+        hop_length=400,
+        cnn_channels=(4, 8),
+        rnn_hidden=8,
+        rnn_layers=1,
+        epn_hidden=4,
+        epn_layers=1,
+        dropout=0.0,
     )
-    ds = FeatureDataset(torch.as_tensor(x), torch.as_tensor(y))
-    return DataLoader(ds, batch_size=32, shuffle=False), num_classes, input_dim
+    base.update(overrides)
+    return SEDConfig(**base)
 
 
-def test_evaluate_returns_finite_metrics():
-    loader, num_classes, input_dim = make_loader()
-    cfg = MLPConfig(input_dim=input_dim, num_classes=num_classes)
-    torch.manual_seed(0)
-    model = MLPClassifier(cfg).eval()
-
-    result = evaluate(model, loader, torch.device("cpu"), num_classes=num_classes)
-    assert np.isfinite(result["accuracy"])
-    assert np.isfinite(result["f1"])
-    assert np.isfinite(result["loss"])
-    assert 0.0 <= result["accuracy"] <= 1.0
-    assert 0.0 <= result["f1"] <= 1.0
-    assert len(result["confusion"]) == num_classes
-    assert set(result["per_class"]) == set(range(num_classes))
-
-
-def test_evaluate_delegates_to_eval_per_epoch():
-    loader, num_classes, input_dim = make_loader(n=120, seed=3)
-    cfg = MLPConfig(input_dim=input_dim, num_classes=num_classes)
-    torch.manual_seed(0)
-    model = MLPClassifier(cfg).eval()
-
-    per_epoch = eval_per_epoch(
-        model, loader, torch.device("cpu"), num_classes=num_classes
+def make_dataset(root, cfg, n=8):
+    keys = ("pres", "on", "off", "don", "doff")
+    targets = {key: np.zeros((n, cfg.num_classes, cfg.num_frames)) for key in keys}
+    for i in range(n):
+        built = build_targets([Event(i % 2, 0.5, 1.5)], cfg)
+        for key in keys:
+            targets[key][i] = built[key]
+    np.save(
+        root / "train_mel.npy",
+        np.zeros((n, cfg.num_frames, cfg.n_mels), dtype=np.float16),
     )
-    wrapped = evaluate(model, loader, torch.device("cpu"), num_classes=num_classes)
-    assert per_epoch == wrapped
+    np.savez(
+        root / "train_targets.npz",
+        **{k: v.astype(np.float16) for k, v in targets.items()},
+    )
+    write_meta(root, cfg, ["a", "b"], {"train": n}, 0.0, 1.0, "synthetic")
+    return SEDDataset(root, "train")
 
 
-def test_confusion_rows_sum_to_support():
-    loader, num_classes, input_dim = make_loader(n=90)
-    cfg = MLPConfig(input_dim=input_dim, num_classes=num_classes)
-    model = MLPClassifier(cfg).eval()
-    result = evaluate(model, loader, torch.device("cpu"), num_classes=num_classes)
-    counts = np.asarray(result["confusion"]).sum(axis=1)
-    assert counts.sum() == 90
+def test_eval_returns_finite_metrics(tmp_path):
+    cfg = make_cfg()
+    ds = make_dataset(tmp_path, cfg)
+    loader = DataLoader(ds, batch_size=4, shuffle=False, collate_fn=collate)
+    model = BoundaryAwareCRNN(cfg).eval()
+    result = eval_per_epoch(
+        model,
+        loader,
+        torch.device("cpu"),
+        cfg,
+        settings={"method": "epn", "threshold": 0.5, "k": 5},
+    )
+    for key in ("psds1", "psds2", "collar_f1", "frame_f1", "frame_accuracy"):
+        assert np.isfinite(result[key])
+    assert len(result["predictions"]) == 8
+    assert len(result["ground_truth"]) == 8
 
 
-def test_format_report_mentions_metrics():
-    loader, num_classes, input_dim = make_loader(n=64)
-    cfg = MLPConfig(input_dim=input_dim, num_classes=num_classes)
-    model = MLPClassifier(cfg).eval()
-    result = evaluate(model, loader, torch.device("cpu"), num_classes=num_classes)
+def test_evaluate_persists_json(tmp_path):
+    cfg = make_cfg()
+    ds = make_dataset(tmp_path, cfg)
+    loader = DataLoader(ds, batch_size=4, shuffle=False, collate_fn=collate)
+    model = BoundaryAwareCRNN(cfg).eval()
+    out = tmp_path / "metrics.json"
+    result = evaluate(
+        model,
+        loader,
+        torch.device("cpu"),
+        cfg,
+        settings={"method": "median", "threshold": 0.5, "filter_len": 3},
+        save_json_path=out,
+    )
+    data = json.loads(out.read_text())
+    assert "psds1" in data
+    assert "predictions" not in data
+    assert np.isfinite(result["collar_f1"])
+
+
+def test_format_report_mentions_metrics(tmp_path):
+    cfg = make_cfg()
+    ds = make_dataset(tmp_path, cfg)
+    loader = DataLoader(ds, batch_size=4, shuffle=False, collate_fn=collate)
+    model = BoundaryAwareCRNN(cfg).eval()
+    result = eval_per_epoch(model, loader, torch.device("cpu"), cfg)
     report = format_report(result)
-    assert "accuracy" in report
-    assert "macro-F1" in report
+    assert "PSDS1" in report
+    assert "collar-F1" in report

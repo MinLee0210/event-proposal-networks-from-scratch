@@ -1,0 +1,79 @@
+# Faithful per-class-GRU EPN variant (paper's AS-Strong-10 configuration).
+#
+# This is the slow variant on Apple-Silicon MPS: 10 separate GRUs per forward,
+# ~12x slower than the single GRU. Intended for an overnight run or a CUDA box.
+#
+#   uv run python scripts/data/prepare_urbansed.py
+#   uv run python -m src.pipelines.train --config configs/crnn_urbansed.yaml
+#
+# 6,000 train / 2,000 validate / 2,000 test clips. The default 40 epochs is a
+# compute-conscious choice for a single Apple-Silicon GPU; the paper trains
+# AS-Strong-10 for up to 100 epochs.
+
+data_root: data/processed/urbansed
+train_split: train
+val_split: validate
+test_split: test
+num_workers: 4
+seed: 42
+
+ckpt_dir: checkpoints
+result_dir: results
+run_name: crnn_red_epn_per_class
+
+epochs: 40
+batch_size: 128
+accum_steps: 1
+lr: 0.001
+weight_decay: 0.001
+warmup_steps: 100
+grad_clip: 5.0
+log_every: 20
+eval_every: 2
+ckpt_every: 10
+
+# Architecture overrides for SEDConfig (num_classes comes from the dataset).
+arch:
+  use_red: true
+  use_epn: true
+  epn_variant: per_class
+  epn_hidden: 32
+  epn_layers: 2
+  cnn_channels: [16, 32, 64, 128]
+  rnn_hidden: 128
+  rnn_layers: 2
+  dropout: 0.3
+
+loss:
+  lambda_ool: 100.0
+  lambda_iou: 2.0
+  focal_alpha: 2.0
+
+eval:
+  method: epn
+  threshold: 0.5
+  k: 15
+  m: null
+  min_duration: 0.0
+
+lr_scheduler:
+  type: warmup_cosine
+  warmup_steps: 100
+  start_epoch: 0
+early_stopping:
+  enabled: true
+  monitor: psds1
+  mode: max
+  patience: 10
+save_best: true
+best_metric: psds1
+best_mode: max
+
+wandb:
+  enabled: true
+  project: epn-sed
+  group: urbansed-crnn
+  entity: null
+  monitor: psds1
+  mode: max
+  log_artifacts: true

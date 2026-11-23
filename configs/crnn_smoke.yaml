@@ -1,0 +1,66 @@
+# Fast end-to-end smoke run on the synthetic dataset.
+#
+#   uv run python scripts/data/make_synthetic_sed.py
+#   uv run python -m src.pipelines.train --config configs/crnn_smoke.yaml
+#
+# This is a correctness check, not a result: 2 epochs on 128 synthetic clips
+# with a narrow CRNN. Metrics should be finite and better than chance.
+
+data_root: data/processed/synthetic
+train_split: train
+val_split: validate
+test_split: test
+num_workers: 0
+seed: 0
+
+ckpt_dir: checkpoints
+result_dir: results
+run_name: crnn_smoke
+
+epochs: 2
+batch_size: 16
+lr: 0.003
+weight_decay: 0.0001
+warmup_steps: 10
+grad_clip: 5.0
+log_every: 2
+eval_every: 1
+ckpt_every: 1
+
+arch:
+  use_red: true
+  use_epn: true
+  epn_variant: per_class
+  epn_hidden: 8
+  epn_layers: 1
+  cnn_channels: [8, 16, 32]
+  rnn_hidden: 32
+  rnn_layers: 1
+  dropout: 0.1
+  num_frames: 200
+  hop_length: 400
+  n_mels: 64
+
+loss:
+  lambda_ool: 10.0
+  lambda_iou: 1.0
+  focal_alpha: 2.0
+
+eval:
+  method: epn
+  threshold: 0.5
+  k: 5
+  m: 5
+
+lr_scheduler:
+  type: warmup_cosine
+  warmup_steps: 10
+  start_epoch: 0
+early_stopping:
+  enabled: false
+save_best: true
+best_metric: psds1
+best_mode: max
+
+wandb:
+  enabled: false

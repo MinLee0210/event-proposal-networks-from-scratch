@@ -13,7 +13,7 @@ class BestCheckpoint(Callback):
     monitor validation accuracy (max).
     """
 
-    def __init__(self, monitor: str = "val_loss", mode: str = "min"):
+    def __init__(self, monitor: str = "val_loss", mode: str = "min") -> None:
         assert mode in ("min", "max"), f"mode must be 'min' or 'max', got {mode!r}"
         self.monitor = monitor
         self.mode = mode

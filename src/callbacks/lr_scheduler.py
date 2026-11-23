@@ -16,11 +16,11 @@ class LRSchedulerCallback(Callback):
 
     def __init__(
         self,
-        scheduler,
+        scheduler: "torch.optim.lr_scheduler.LRScheduler",
         step_kind: str = "step",
         monitor: str = "val_loss",
         start_epoch: int = 0,
-    ):
+    ) -> None:
         assert step_kind in ("step", "validation")
         self.scheduler = scheduler
         self.step_kind = step_kind

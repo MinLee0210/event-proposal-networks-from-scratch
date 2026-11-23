@@ -1,0 +1,58 @@
+# Ablation "+RED": RED presence, BCE only, median-filter events.
+# Isolates the recurrent event detection layer before the boundary losses.
+
+data_root: data/processed/urbansed
+train_split: train
+val_split: validate
+test_split: test
+num_workers: 4
+seed: 42
+
+ckpt_dir: checkpoints
+result_dir: results
+run_name: crnn_red_urbansed
+
+epochs: 40
+batch_size: 128
+lr: 0.001
+weight_decay: 0.001
+warmup_steps: 100
+grad_clip: 5.0
+log_every: 20
+eval_every: 2
+ckpt_every: 10
+
+arch:
+  use_red: true
+  use_epn: false
+  cnn_channels: [16, 32, 64, 128]
+  rnn_hidden: 128
+  rnn_layers: 2
+  dropout: 0.3
+
+loss:
+  use_ool: false
+  use_epn: false
+
+eval:
+  method: median
+  threshold: 0.5
+  filter_len: 7
+
+lr_scheduler:
+  type: warmup_cosine
+  warmup_steps: 100
+  start_epoch: 0
+early_stopping:
+  enabled: true
+  monitor: psds1
+  mode: max
+  patience: 10
+save_best: true
+best_metric: psds1
+best_mode: max
+
+wandb:
+  enabled: true
+  project: epn-sed
+  group: urbansed-crnn

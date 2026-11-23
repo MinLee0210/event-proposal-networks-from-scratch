@@ -1,13 +1,13 @@
-"""MLP training entrypoint.
+"""Train a boundary-aware CRNN on URBAN-SED.
 
-Feature classification with a plain cross-entropy loss. Validation is the
-held-out split's accuracy / macro-F1 (optionally its loss). Controlled via a
-YAML config (see configs/train.yaml) with individual CLI overrides. Callbacks
-(LR schedule, early stopping, best checkpoint, W&B) are wired from that file.
+The loop is deliberately small: one forward pass returns RED/EPN outputs, the
+combined loss is `L_pres + lambda_ool * (L_on + L_off) + lambda_iou * L_iou`,
+and periodic validation converts frame probabilities into events to compute
+PSDS1 and collar F1.
 
 Usage:
-    uv run python -m src.pipelines.train --config configs/train.yaml
-    uv run python -m src.pipelines.train --config configs/train.yaml --epochs 50 --lr 5e-4
+    uv run python -m src.pipelines.train --config configs/crnn_urbansed.yaml
+    uv run python -m src.pipelines.train --config configs/crnn_smoke.yaml
 """
 
 import argparse
@@ -16,20 +16,20 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from src.callbacks import (
     BestCheckpoint,
+    Callback,
     EarlyStopping,
     TrainContext,
     TrainerState,
     build_lr_scheduler,
 )
 from src.callbacks.wandb_callback import WandbCallback
-from src.config import MLPConfig
-from src.data import dataset_from_npz, split_train_val
-from src.modules.loss import ClassificationLoss
-from src.modules.model import MLPClassifier
+from src.data import SEDDataset, collate, load_meta
+from src.modules.loss import SEDLoss
+from src.modules.model import build_model
 from src.pipelines._utils import announce_training
 from src.pipelines.config import TrainingConfig, load_training_config
 from src.pipelines.eval import eval_per_epoch, format_report
@@ -39,16 +39,43 @@ from src.utils.model_utils import detect_device, get_run_name
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _resolve(data_root: str, name: Optional[str]) -> Optional[Path]:
-    """`<data_root>/<name>` if it exists, else None (optional splits)."""
-    if not name:
-        return None
-    path = Path(data_root) / name
-    return path if path.exists() else None
+def build_loaders(
+    train_cfg: TrainingConfig, device: torch.device
+) -> tuple[DataLoader, Optional[DataLoader], Optional[DataLoader], SEDDataset, dict]:
+    """Build train/val/test loaders from the processed dataset.
 
+    Args:
+        train_cfg: Training configuration.
+        device: Torch device (controls `pin_memory`).
 
-def build_model(model_cfg: MLPConfig, device: torch.device) -> MLPClassifier:
-    return MLPClassifier(model_cfg).to(device)
+    Returns:
+        `(train_loader, val_loader, test_loader, train_dataset, meta)`.
+
+    Raises:
+        FileNotFoundError: If the processed dataset is missing.
+    """
+    meta = load_meta(train_cfg.data_root)
+    train_ds = SEDDataset(train_cfg.data_root, train_cfg.train_split, meta=meta)
+    val_ds = SEDDataset(train_cfg.data_root, train_cfg.val_split, meta=meta)
+    test_ds = SEDDataset(train_cfg.data_root, train_cfg.test_split, meta=meta)
+
+    pin_memory = train_cfg.pin_memory and device.type == "cuda"
+    common = dict(
+        batch_size=train_cfg.batch_size,
+        num_workers=train_cfg.num_workers,
+        pin_memory=pin_memory,
+        collate_fn=collate,
+        persistent_workers=train_cfg.num_workers > 0,
+    )
+    train_loader = DataLoader(
+        train_ds,
+        shuffle=True,
+        drop_last=len(train_ds) >= train_cfg.batch_size,
+        **common,
+    )
+    val_loader = DataLoader(val_ds, shuffle=False, **common) if len(val_ds) else None
+    test_loader = DataLoader(test_ds, shuffle=False, **common) if len(test_ds) else None
+    return train_loader, val_loader, test_loader, train_ds, meta
 
 
 def build_callbacks(
@@ -56,10 +83,26 @@ def build_callbacks(
     optimizer: torch.optim.Optimizer,
     run_name: str,
     wandb_config: dict,
-):
-    callbacks = []
+    total_steps: int,
+) -> list[Callback]:
+    """Assemble LR scheduling, early stopping, checkpointing and W&B callbacks.
 
-    lr_cb = build_lr_scheduler(optimizer, train_cfg.lr_scheduler)
+    Args:
+        train_cfg: Training configuration.
+        optimizer: Optimizer whose LR is scheduled.
+        run_name: Run name for logging.
+        wandb_config: Serializable config passed to W&B.
+        total_steps: Total optimizer steps (for the cosine schedule).
+
+    Returns:
+        A list of callbacks in execution order.
+    """
+    callbacks = []
+    scheduler_cfg = dict(train_cfg.lr_scheduler or {})
+    if scheduler_cfg.get("type") == "warmup_cosine":
+        scheduler_cfg.setdefault("warmup_steps", train_cfg.warmup_steps)
+        scheduler_cfg.setdefault("t_max", total_steps)
+    lr_cb = build_lr_scheduler(optimizer, scheduler_cfg)
     if lr_cb is not None:
         callbacks.append(lr_cb)
 
@@ -74,12 +117,11 @@ def build_callbacks(
             BestCheckpoint(monitor=train_cfg.best_metric, mode=train_cfg.best_mode)
         )
 
-    # after BestCheckpoint: relies on <ckpt_dir>/best.pt already existing
     if train_cfg.wandb and train_cfg.wandb.get("enabled", False):
         wb = train_cfg.wandb
         callbacks.append(
             WandbCallback(
-                project_name=wb.get("project", "ai-research-template"),
+                project_name=wb.get("project", "epn-sed"),
                 run_name=run_name,
                 config=wandb_config,
                 entity=wb.get("entity"),
@@ -89,74 +131,42 @@ def build_callbacks(
                 group=wb.get("group"),
             )
         )
-
     return callbacks
 
 
-def build_loaders(
-    train_cfg: TrainingConfig,
-    device: torch.device,
-) -> tuple[DataLoader, Optional[DataLoader], Optional[DataLoader], Dataset]:
-    """Returns (train_loader, val_loader, test_loader, train_dataset).
-
-    Preference order for validation: an explicit `val_file`; otherwise a
-    deterministic split of the train set when `val_fraction > 0`.
-    """
-    train_path = _resolve(train_cfg.data_root, train_cfg.train_file)
-    if train_path is None:
-        raise FileNotFoundError(
-            f"training split not found: {Path(train_cfg.data_root) / train_cfg.train_file}"
-        )
-    train_dataset = dataset_from_npz(train_path)
-
-    val_path = _resolve(train_cfg.data_root, train_cfg.val_file)
-    if val_path is not None:
-        val_dataset: Optional[Dataset] = dataset_from_npz(val_path)
-    else:
-        train_dataset, val_dataset = split_train_val(
-            train_dataset, train_cfg.val_fraction, train_cfg.seed
-        )
-
-    test_path = _resolve(train_cfg.data_root, train_cfg.test_file)
-    test_dataset = dataset_from_npz(test_path) if test_path is not None else None
-
-    pin_memory = train_cfg.pin_memory and device.type == "cuda"
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=train_cfg.batch_size,
-        shuffle=True,
-        drop_last=False,
-        num_workers=train_cfg.num_workers,
-        pin_memory=pin_memory,
-    )
-    val_loader = (
-        DataLoader(
-            val_dataset,
-            batch_size=train_cfg.batch_size,
-            shuffle=False,
-            num_workers=train_cfg.num_workers,
-            pin_memory=pin_memory,
-        )
-        if val_dataset is not None and len(val_dataset) > 0
-        else None
-    )
-    test_loader = (
-        DataLoader(
-            test_dataset,
-            batch_size=train_cfg.batch_size,
-            shuffle=False,
-            num_workers=train_cfg.num_workers,
-            pin_memory=pin_memory,
-        )
-        if test_dataset is not None
-        else None
-    )
-    return train_loader, val_loader, test_loader, train_dataset
-
-
 def _optimizer_step(
-    optimizer, scaler, callbacks, ctx, pending_losses, step, epoch, log_every
-):
+    optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler,
+    callbacks: list[Callback],
+    ctx: TrainContext,
+    pending_losses: list[float],
+    step: int,
+    epoch: int,
+    log_every: int,
+    grad_clip: float,
+) -> tuple[int, float]:
+    """Apply one accumulated update and notify step-level callbacks.
+
+    Args:
+        optimizer: Optimizer to step.
+        scaler: AMP gradient scaler.
+        callbacks: Active callbacks.
+        ctx: Training context.
+        pending_losses: Loss values accumulated since the last step.
+        step: Current global step.
+        epoch: Current epoch.
+        log_every: Logging interval in steps.
+        grad_clip: Gradient-norm clip; 0 disables.
+
+    Returns:
+        `(step, average_loss)` after the update.
+    """
+    if grad_clip and grad_clip > 0:
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(
+            [p for group in optimizer.param_groups for p in group["params"]],
+            grad_clip,
+        )
     scaler.step(optimizer)
     scaler.update()
     optimizer.zero_grad()
@@ -171,55 +181,110 @@ def _optimizer_step(
 
 
 def train_per_epoch(
-    model,
-    criterion,
-    loader,
-    optimizer,
-    scaler,
-    accum_steps,
-    device,
-    callbacks,
-    ctx,
-    step,
-    epoch,
-    log_every,
-):
+    model: torch.nn.Module,
+    criterion: SEDLoss,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scaler: torch.amp.GradScaler,
+    accum_steps: int,
+    device: torch.device,
+    callbacks: list[Callback],
+    ctx: TrainContext,
+    step: int,
+    epoch: int,
+    log_every: int,
+    grad_clip: float,
+) -> tuple[float, dict[str, float], int]:
+    """Run one training epoch.
+
+    Args:
+        model: SED model.
+        criterion: `SEDLoss` module.
+        loader: Training loader.
+        optimizer: AdamW optimizer.
+        scaler: AMP gradient scaler.
+        accum_steps: Gradient accumulation steps.
+        device: Torch device.
+        callbacks: Active callbacks.
+        ctx: Training context.
+        step: Starting global step.
+        epoch: Current epoch.
+        log_every: Logging interval in steps.
+        grad_clip: Gradient-norm clip.
+
+    Returns:
+        `(average_loss, components, step)` where `components` averages
+        `pres`/`ool`/`iou`.
+    """
     model.train()
     epoch_losses, pending = [], []
+    component_sums = {"pres": 0.0, "ool": 0.0, "iou": 0.0}
+    component_count = 0
     optimizer.zero_grad()
 
-    for x, labels in loader:
-        x = x.float().to(device)
-        labels = labels.reshape(-1).long().to(device)
-
+    for batch in loader:
+        mel = batch["mel"].float().to(device)
+        targets = {
+            key: batch[key].float().to(device)
+            for key in ("pres", "on", "off", "don", "doff")
+        }
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
-            logits, _ = model(x)
-            loss = criterion(logits, labels)
+            outputs = model(mel)
+            losses = criterion(outputs, targets, mask=None)
+            loss = losses["loss"]
 
         scaler.scale(loss / accum_steps).backward()
         pending.append(loss.item())
+        component_count += 1
+        for key in component_sums:
+            component_sums[key] += float(losses[key].item())
 
-        if len(pending) == accum_steps:
+        if len(pending) >= accum_steps:
             step, avg_loss = _optimizer_step(
-                optimizer, scaler, callbacks, ctx, pending, step, epoch, log_every
+                optimizer,
+                scaler,
+                callbacks,
+                ctx,
+                pending,
+                step,
+                epoch,
+                log_every,
+                grad_clip,
             )
             epoch_losses.append(avg_loss)
             pending = []
 
     if pending:
         step, avg_loss = _optimizer_step(
-            optimizer, scaler, callbacks, ctx, pending, step, epoch, log_every
+            optimizer,
+            scaler,
+            callbacks,
+            ctx,
+            pending,
+            step,
+            epoch,
+            log_every,
+            grad_clip,
         )
         epoch_losses.append(avg_loss)
 
-    return (
-        sum(epoch_losses) / len(epoch_losses) if epoch_losses else float("nan"),
-        step,
-    )
+    components = {
+        key: value / max(component_count, 1) for key, value in component_sums.items()
+    }
+    mean_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else float("nan")
+    return mean_loss, components, step
 
 
-def train(train_cfg: TrainingConfig):
-    load_env(REPO_ROOT / ".env")  # WANDB_API_KEY for callbacks
+def train(train_cfg: TrainingConfig) -> list[dict]:
+    """Run the full training pipeline and return the per-epoch history.
+
+    Args:
+        train_cfg: Resolved training configuration.
+
+    Returns:
+        A list of per-epoch history records (also written to JSON).
+    """
+    load_env(REPO_ROOT / ".env")
     device = detect_device()
     print(f"device: {device}")
 
@@ -229,31 +294,33 @@ def train(train_cfg: TrainingConfig):
     elif device.type == "mps":
         torch.mps.manual_seed(train_cfg.seed)
 
-    train_loader, val_loader, test_loader, train_dataset = build_loaders(
+    train_loader, val_loader, test_loader, train_ds, meta = build_loaders(
         train_cfg, device
     )
-    num_classes = train_dataset.num_classes
-    input_dim = train_dataset.input_dim
-    print(f"classes: {num_classes}  input_dim: {input_dim}")
+    model_cfg = train_cfg.model_config(train_ds.num_classes)
+    if model_cfg.num_frames != train_ds.num_frames:
+        raise ValueError(
+            "processed features and model disagree on num_frames: "
+            f"{train_ds.num_frames} vs {model_cfg.num_frames}"
+        )
+    model = build_model(model_cfg).to(device)
+    loss_kwargs = dict(train_cfg.loss or {})
+    loss_kwargs.setdefault("use_ool", model_cfg.use_red)
+    loss_kwargs.setdefault("use_epn", model_cfg.use_epn)
+    criterion = SEDLoss(model_cfg, **loss_kwargs).to(device)
 
-    model_cfg = MLPConfig(
-        input_dim=input_dim,
-        num_classes=num_classes,
-        **(train_cfg.arch or {}),
-    )
-    model = build_model(model_cfg, device)
-    criterion = ClassificationLoss().to(device)
-
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         model.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weight_decay
     )
     scaler = torch.amp.GradScaler(
         "cuda" if device.type == "cuda" else "cpu",
         enabled=(train_cfg.amp and device.type == "cuda"),
     )
+    steps_per_epoch = max(len(train_loader), 1)
+    total_steps = steps_per_epoch * train_cfg.epochs
 
     run_name = train_cfg.run_name or get_run_name(
-        "mlp",
+        "crnn_red_epn" if model_cfg.use_red else "crnn_baseline",
         Path(train_cfg.data_root).name,
         train_cfg.lr,
         train_cfg.batch_size,
@@ -262,7 +329,11 @@ def train(train_cfg: TrainingConfig):
     result_dir = Path(train_cfg.result_dir) / run_name
 
     callbacks = build_callbacks(
-        train_cfg, optimizer, run_name, {**asdict(model_cfg), **asdict(train_cfg)}
+        train_cfg,
+        optimizer,
+        run_name,
+        {"model": asdict(model_cfg), "training": asdict(train_cfg)},
+        total_steps,
     )
     early_stoppers = [cb for cb in callbacks if isinstance(cb, EarlyStopping)]
 
@@ -275,7 +346,7 @@ def train(train_cfg: TrainingConfig):
         model=model,
         optimizer=optimizer,
         ckpt_dir=ckpt_dir,
-        cfg_dict=asdict(model_cfg),
+        cfg_dict={"model": asdict(model_cfg), "training": asdict(train_cfg)},
         wandb_run_id=wandb_run_id,
     )
     for cb in callbacks:
@@ -297,7 +368,7 @@ def train(train_cfg: TrainingConfig):
         model_cfg=model_cfg,
         train_cfg=train_cfg,
         train_loader=train_loader,
-        train_dataset=train_dataset,
+        train_dataset=train_ds,
         device=device,
         run_name=run_name,
         ckpt_dir=ckpt_dir,
@@ -307,7 +378,7 @@ def train(train_cfg: TrainingConfig):
     history = []
     stopped_early = False
     for epoch in range(start_epoch, train_cfg.epochs + 1):
-        train_loss, step = train_per_epoch(
+        train_loss, components, step = train_per_epoch(
             model,
             criterion,
             train_loader,
@@ -320,53 +391,51 @@ def train(train_cfg: TrainingConfig):
             step,
             epoch,
             train_cfg.log_every,
+            train_cfg.grad_clip,
         )
-        record = {"epoch": epoch, "step": step, "loss": train_loss}
-        print(f"epoch {epoch:3d}/{train_cfg.epochs}  train_loss={train_loss:.4f}")
+        record = {
+            "epoch": epoch,
+            "step": step,
+            "loss": train_loss,
+            **{f"loss_{k}": v for k, v in components.items()},
+        }
+        print(
+            f"epoch {epoch:3d}/{train_cfg.epochs}  train_loss={train_loss:.4f}  "
+            f"pres={components['pres']:.4f}  ool={components['ool']:.4f}  "
+            f"iou={components['iou']:.4f}"
+        )
 
         should_validate = epoch % train_cfg.eval_every == 0 or epoch == train_cfg.epochs
-        if should_validate:
-            val_result = (
-                eval_per_epoch(
-                    model,
-                    val_loader,
-                    device,
-                    num_classes=num_classes,
-                    criterion=criterion,
-                )
-                if val_loader is not None
-                else None
+        if should_validate and val_loader is not None:
+            settings = train_cfg.eval_settings()
+            val_gt = getattr(val_loader.dataset, "events", None) or None
+            val_result = eval_per_epoch(
+                model,
+                val_loader,
+                device,
+                model_cfg,
+                settings=settings,
+                criterion=criterion,
+                gt_events_by_index=val_gt,
             )
-            # Report the test split when present, else fall back to the val
-            # split so a run without a held-out test still has metrics.
-            metric_result = (
-                eval_per_epoch(
-                    model,
-                    test_loader,
-                    device,
-                    num_classes=num_classes,
-                    criterion=criterion,
-                )
-                if test_loader is not None
-                else val_result
-            )
-            extra = {}
-            if metric_result is not None:
-                extra = {
-                    "accuracy": metric_result["accuracy"],
-                    "f1": metric_result["f1"],
-                    "metric_loss": metric_result["loss"],
-                }
-                record.update(extra)
-                print(format_report(metric_result))
+            extra = {
+                "psds1": val_result["psds1"],
+                "psds2": val_result["psds2"],
+                "collar_f1": val_result["collar_f1"],
+                "frame_f1": val_result["frame_f1"],
+                "metric_loss": val_result["loss"],
+            }
+            record.update(extra)
+            record["val_loss"] = val_result["loss"]
+            print(format_report(val_result))
+
             state = TrainerState(
                 step=step,
                 train_loss=train_loss,
                 epoch=epoch,
-                val_loss=val_result["loss"] if val_result is not None else None,
+                val_loss=val_result["loss"],
                 extra=extra,
             )
-            record["val_loss"] = state.val_loss
             for cb in callbacks:
                 cb.on_validation_end(ctx, state)
             if any(es.should_stop for es in early_stoppers):
@@ -382,7 +451,8 @@ def train(train_cfg: TrainingConfig):
                 step,
                 ckpt_path,
                 extra={
-                    "cfg": asdict(model_cfg),
+                    "cfg": {"model": asdict(model_cfg), "training": asdict(train_cfg)},
+                    "model_cfg": asdict(model_cfg),
                     "epoch": epoch,
                     "wandb_run_id": ctx.wandb_run_id,
                 },
@@ -392,11 +462,60 @@ def train(train_cfg: TrainingConfig):
         if stopped_early:
             break
 
+    save_json(history, ckpt_dir / "train_log.json")
+    save_json(history, result_dir / "train_log.json")
+
+    if test_loader is not None and val_loader is not None:
+        # Evaluate the best checkpoint on the held-out test split.
+        best_path = ckpt_dir / "best.pt"
+        if best_path.exists():
+            raw = torch.load(best_path, map_location=str(device))
+            model.load_state_dict(raw["model"])
+        test_gt = getattr(test_loader.dataset, "events", None) or None
+        test_result = eval_per_epoch(
+            model,
+            test_loader,
+            device,
+            model_cfg,
+            settings=train_cfg.eval_settings(),
+            criterion=criterion,
+            gt_events_by_index=test_gt,
+        )
+        save_json(
+            {
+                k: v
+                for k, v in test_result.items()
+                if k not in ("predictions", "ground_truth")
+            },
+            result_dir / "test_metrics.json",
+        )
+        print("\ntest split\n" + format_report(test_result))
+
+        # Log the test scalars while the W&B run is still open.
+        scalar_keys = (
+            "psds1",
+            "psds2",
+            "collar_f1",
+            "collar_precision",
+            "collar_recall",
+            "frame_f1",
+            "frame_precision",
+            "frame_recall",
+            "frame_accuracy",
+            "loss",
+        )
+        test_scalars = {
+            k: float(test_result[k])
+            for k in scalar_keys
+            if k in test_result and test_result[k] is not None
+        }
+        for cb in callbacks:
+            if isinstance(cb, WandbCallback) and cb.enabled:
+                cb.log_metrics(test_scalars, step=step, prefix="test")
+
     for cb in callbacks:
         cb.on_train_end(ctx)
 
-    save_json(history, ckpt_dir / "train_log.json")
-    save_json(history, result_dir / "train_log.json")
     print(
         f"\n{'stopped early' if stopped_early else 'finished'} "
         f"at epoch {epoch} (step {step})"
@@ -406,13 +525,11 @@ def train(train_cfg: TrainingConfig):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config", type=Path, default=None, help="YAML, see configs/train.yaml"
-    )
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--data_root", type=str, default=None)
-    parser.add_argument("--train_file", type=str, default=None)
-    parser.add_argument("--val_file", type=str, default=None)
-    parser.add_argument("--test_file", type=str, default=None)
+    parser.add_argument("--train_split", type=str, default=None)
+    parser.add_argument("--val_split", type=str, default=None)
+    parser.add_argument("--test_split", type=str, default=None)
     parser.add_argument("--ckpt_dir", type=str, default=None)
     parser.add_argument("--result_dir", type=str, default=None)
     parser.add_argument("--run_name", type=str, default=None)
@@ -425,13 +542,11 @@ if __name__ == "__main__":
     parser.add_argument("--log_every", type=int, default=None)
     parser.add_argument("--eval_every", type=int, default=None)
     parser.add_argument("--ckpt_every", type=int, default=None)
-    parser.add_argument("--val_fraction", type=float, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--resume_from", type=str, default=None)
     parser.add_argument("--amp", action="store_true", default=None)
-    parser.add_argument("--pin_memory", action="store_true", default=None)
     args = parser.parse_args()
 
     overrides = {k: v for k, v in vars(args).items() if k != "config"}
-    train_cfg = load_training_config(args.config, **overrides)
-    train(train_cfg)
+    cfg = load_training_config(args.config, **overrides)
+    train(cfg)

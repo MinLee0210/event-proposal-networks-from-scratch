@@ -7,7 +7,7 @@ raising.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from src.callbacks.base import Callback, TrainContext, TrainerState
 
@@ -33,14 +33,14 @@ class WandbCallback(Callback):
         mode: str = "min",
         log_artifacts: bool = True,
         group: Optional[str] = None,
-    ):
+    ) -> None:
         assert mode in ("min", "max"), f"mode must be 'min' or 'max', got {mode!r}"
         self.monitor = monitor
         self.mode = mode
         self.log_artifacts = log_artifacts
         self.best: Optional[float] = None
         self.enabled = wandb is not None
-        self.run = None
+        self.run: Optional[Any] = None
 
         if not self.enabled:
             print(
@@ -81,7 +81,9 @@ class WandbCallback(Callback):
                 self.run.summary[f"best_{self.monitor}"] = value
                 print(f"  [WandbCallback] new best {self.monitor}: {value:.4f}")
 
-    def log_artifact(self, model_path, name: str = "model-checkpoint") -> None:
+    def log_artifact(
+        self, model_path: str | Path, name: str = "model-checkpoint"
+    ) -> None:
         if not self.enabled:
             return
         artifact = wandb.Artifact(name, type="model")

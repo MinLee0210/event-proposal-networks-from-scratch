@@ -14,7 +14,7 @@ class EarlyStopping(Callback):
         patience: int = 10,
         min_delta: float = 0.0,
         mode: str = "min",
-    ):
+    ) -> None:
         assert mode in ("min", "max"), f"mode must be 'min' or 'max', got {mode!r}"
         self.monitor = monitor
         self.patience = patience

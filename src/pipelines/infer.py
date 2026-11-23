@@ -1,91 +1,204 @@
-"""Single-checkpoint inference: feature vectors -> logits / probabilities.
+"""Single-clip inference for a trained boundary-aware SED model.
 
 Loads a checkpoint, rebuilds the model from its saved architecture config, and
-runs a forward pass over one or all rows of an `.npz` feature file. If the file
-carries labels, accuracy over the selected rows is reported too.
+converts frame probabilities into events either with EPN Algorithm 1 or median
+filtering. Input can be a raw `.wav` or a row of a processed split.
 
 Usage:
-    uv run python -m src.pipelines.infer \\
-        --ckpt checkpoints/<run>/best.pt --features data/raw/test.npz --index 0
+    uv run python -m src.pipelines.infer \
+        --ckpt checkpoints/<run>/best.pt --wav data/URBAN-SED_v2.0.0/audio/test/x.wav
+    uv run python -m src.pipelines.infer \
+        --ckpt checkpoints/<run>/best.pt --split test --index 0
 """
 
 import argparse
-from dataclasses import fields
+import json
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Dict, Optional
 
 import torch
 
-from src.config import MLPConfig
-from src.data import load_npz
-from src.modules.loss import predict, probabilities
-from src.modules.model import MLPClassifier
+from src.config import SEDConfig
+from src.data import (
+    SEDDataset,
+    load_audio,
+    load_meta,
+    make_mel_transform,
+    waveform_to_logmel,
+)
+from src.modules.events import Event
+from src.modules.postprocess import events_from_model_output
+from src.modules.model import build_model
 from src.utils.model_utils import detect_device
 
 
-def config_from_checkpoint(ckpt: dict) -> MLPConfig:
-    """Rebuild MLPConfig from a checkpoint's saved `extra["cfg"]`."""
-    saved = ckpt.get("extra", {}).get("cfg", {})
-    known = {f.name for f in fields(MLPConfig)}
-    return MLPConfig(**{k: v for k, v in saved.items() if k in known})
+def config_from_checkpoint(ckpt: dict) -> SEDConfig:
+    """Rebuild `SEDConfig` from checkpoint metadata.
+
+    Supports both the periodic-checkpoint schema (`extra.model_cfg`) and the
+    best-checkpoint schema (`extra.cfg.model`).
+
+    Args:
+        ckpt: Loaded checkpoint dict.
+
+    Returns:
+        The architecture config used to train the checkpoint.
+
+    Raises:
+        ValueError: If the checkpoint has no recognisable model config.
+    """
+    extra = ckpt.get("extra", {})
+    saved = extra.get("model_cfg")
+    if saved is None:
+        cfg = extra.get("cfg", {})
+        saved = cfg.get("model", cfg) if isinstance(cfg, dict) else {}
+    known = {f.name for f in fields(SEDConfig)}
+    filtered = {k: v for k, v in saved.items() if k in known}
+    if not filtered.get("num_classes"):
+        raise ValueError("checkpoint does not contain a usable model config")
+    return SEDConfig(**filtered)
 
 
 def load_model(
     ckpt_path: Path, device: torch.device
-) -> tuple[MLPClassifier, MLPConfig]:
+) -> tuple[torch.nn.Module, SEDConfig]:
+    """Load a checkpoint and its architecture.
+
+    Args:
+        ckpt_path: Path to a `.pt` checkpoint.
+        device: Torch device.
+
+    Returns:
+        `(model, cfg)` with the model in eval mode.
+
+    Raises:
+        FileNotFoundError: If the checkpoint does not exist.
+    """
     ckpt_path = Path(ckpt_path)
     if not ckpt_path.exists():
         raise FileNotFoundError(f"checkpoint not found: {ckpt_path}")
     raw = torch.load(ckpt_path, map_location=str(device))
     cfg = config_from_checkpoint(raw)
-    model = MLPClassifier(cfg).to(device)
+    model = build_model(cfg).to(device)
     model.load_state_dict(raw["model"])
     model.eval()
     return model, cfg
 
 
+def _load_clip(
+    wav: Optional[Path],
+    split: Optional[str],
+    index: int,
+    data_root: str,
+    cfg: SEDConfig,
+) -> tuple[torch.Tensor, Optional[list[Event]]]:
+    """Load one clip as a normalised `(1, 1, T, F)` tensor.
+
+    Args:
+        wav: Optional raw audio path.
+        split: Processed split name used when `wav` is omitted.
+        index: Row index in `split`.
+        data_root: Processed dataset directory.
+        cfg: Architecture config for the frontend.
+
+    Returns:
+        `(mel_batch, ground_truth_events_or_None)`.
+
+    Raises:
+        ValueError: If neither `wav` nor `split` is provided.
+    """
+    if wav is not None:
+        meta = {}
+        try:
+            meta = load_meta(data_root)
+        except FileNotFoundError:
+            pass
+        waveform = load_audio(wav, cfg.sample_rate)
+        mel = waveform_to_logmel(waveform, make_mel_transform(cfg), cfg.num_frames)
+        mean = float(meta.get("mel_mean", 0.0))
+        std = float(meta.get("mel_std", 1.0)) or 1.0
+        x = torch.from_numpy((mel - mean) / std).unsqueeze(0).unsqueeze(0)
+        return x.float(), None
+
+    if split is None:
+        raise ValueError("provide either --wav or --split")
+    dataset = SEDDataset(data_root, split)
+    row = dataset[index]
+    gt = dataset.ground_truth_events(index, threshold=0.5)
+    return row["mel"].unsqueeze(0), gt
+
+
 @torch.no_grad()
 def infer(
     ckpt_path: Path,
-    features_path: Path,
-    index: Optional[int] = 0,
+    wav: Optional[Path] = None,
+    split: Optional[str] = None,
+    index: int = 0,
+    data_root: str = "data/processed/urbansed",
+    method: str = "epn",
+    threshold: float = 0.5,
+    filter_len: int = 7,
+    k: int = 15,
+    m: Optional[int] = None,
     out_path: Optional[Path] = None,
 ) -> Dict[str, object]:
-    """Score one row (`index`) or every row (`index=None`) of the feature file."""
+    """Run inference on one clip and print/save the predicted events.
+
+    Args:
+        ckpt_path: Checkpoint path.
+        wav: Raw audio path; mutually exclusive with `split`.
+        split: Processed split name.
+        index: Row index in `split`.
+        data_root: Processed dataset directory.
+        method: `epn` or `median`.
+        threshold: Median-filter threshold (also used for scoring output).
+        filter_len: Median-filter length in frames.
+        k: Maximum events per class for EPN inference.
+        m: Number of most-active classes for EPN inference.
+        out_path: Optional JSON output path.
+
+    Returns:
+        A dict with `events`, `presence` and `ground_truth`.
+    """
     device = detect_device()
     model, cfg = load_model(ckpt_path, device)
-    x, y = load_npz(features_path)
-
-    if index is None:
-        x_sel, y_sel = x, y
-    else:
-        x_sel, y_sel = x[index : index + 1], y[index : index + 1]
-
-    if x_sel.shape[1] != cfg.input_dim:
-        raise ValueError(
-            f"feature dim mismatch: file has {x_sel.shape[1]}, model expects {cfg.input_dim}"
-        )
-    x_sel = x_sel.to(device)
-    logits, feature = model(x_sel)
-    probs = probabilities(logits)
-    preds = predict(logits)
+    x, gt = _load_clip(wav, split, index, data_root, cfg)
+    x = x.to(device)
+    outputs = model(x)
+    if method == "epn" and "don" not in outputs:
+        method = "median"
+    events = events_from_model_output(
+        outputs,
+        cfg,
+        method=method,
+        threshold=threshold,
+        filter_len=filter_len,
+        k=k,
+        m=m,
+    )[0]
 
     print(f"checkpoint: {ckpt_path}")
-    print(f"samples: {x_sel.shape[0]}  feature: {tuple(feature.shape)}")
-    print(f"predicted: {preds.tolist()}")
-    if len(y_sel):
-        matches = (preds.cpu() == y_sel).float().mean().item()
-        print(f"labels:    {y_sel.tolist()}  (accuracy={matches * 100:.2f}%)")
+    print(f"events: {len(events)}")
+    for ev in sorted(events, key=lambda e: (e.onset, e.class_id)):
+        print(
+            f"  class={ev.class_id:>2d}  onset={ev.onset:6.2f}s  "
+            f"offset={ev.offset:6.2f}s  score={ev.score:.3f}"
+        )
+    if gt is not None:
+        print(f"ground truth: {len(gt)} events")
+        for ev in sorted(gt, key=lambda e: (e.onset, e.class_id)):
+            print(f"  class={ev.class_id:>2d}  [{ev.onset:6.2f}, {ev.offset:6.2f}]")
 
     result = {
-        "logits": logits.cpu(),
-        "probabilities": probs.cpu(),
-        "predictions": preds.cpu(),
-        "feature": feature.cpu(),
-        "source": str(features_path),
+        "events": [asdict(ev) for ev in events],
+        "ground_truth": [asdict(ev) for ev in gt] if gt is not None else None,
+        "source": str(wav) if wav is not None else f"{split}[{index}]",
     }
     if out_path is not None:
-        torch.save(result, out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
         print(f"saved: {out_path}")
     return result
 
@@ -93,11 +206,27 @@ def infer(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt", type=Path, required=True)
-    parser.add_argument("--features", type=Path, required=True)
-    parser.add_argument(
-        "--index", type=int, default=0, help="row to score; omit with --all"
-    )
-    parser.add_argument("--all", action="store_true", help="score every row")
+    parser.add_argument("--wav", type=Path, default=None)
+    parser.add_argument("--split", type=str, default=None)
+    parser.add_argument("--index", type=int, default=0)
+    parser.add_argument("--data_root", type=str, default="data/processed/urbansed")
+    parser.add_argument("--method", choices=["epn", "median"], default="epn")
+    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--filter_len", type=int, default=7)
+    parser.add_argument("--k", type=int, default=15)
+    parser.add_argument("--m", type=int, default=None)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
-    infer(args.ckpt, args.features, None if args.all else args.index, args.out)
+    infer(
+        args.ckpt,
+        wav=args.wav,
+        split=args.split,
+        index=args.index,
+        data_root=args.data_root,
+        method=args.method,
+        threshold=args.threshold,
+        filter_len=args.filter_len,
+        k=args.k,
+        m=args.m,
+        out_path=args.out,
+    )

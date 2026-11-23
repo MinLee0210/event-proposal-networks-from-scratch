@@ -10,6 +10,8 @@ docs/
 ├── RESEARCH.md           project question, scope, method
 ├── NOTES.md              decisions log (append newest at top)
 ├── EXPERIMENTS.md        runbook for gated experiments
+├── STYLE.md              docstring and type-hint convention
+├── PAPER_SPEC.md         reproduction write-up spec
 ├── analysis/             analysis artifacts
 │   └── <yyyy-mm-dd>/<topic>/...{md|txt|csv|png|...}
 └── reports/              write-ups / reports
