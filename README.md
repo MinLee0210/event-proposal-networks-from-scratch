@@ -18,6 +18,9 @@ This repo implements the full stack (data preparation → training → event
 inference → PSDS1/PSDS2 / collar-F1 evaluation), the frame-wise + median-filter
 baseline, and the paper’s component ablation (`BL → +RED → +OOL → +EPN`).
 
+Technical report: [`docs/paper/technical-report.pdf`](docs/paper/technical-report.pdf)
+([LaTeX source](docs/paper/technical-report.tex)).
+
 ## Status
 
 | Item | State |
@@ -33,7 +36,8 @@ baseline, and the paper’s component ablation (`BL → +RED → +OOL → +EPN`)
 | Full URBAN-SED suite (40 epochs, VM GPU) | completed; see the [results report](docs/reports/2026-11-24/urbansed-crnn/report.md) |
 | Baseline / +RED / +OOL / +EPN | 36.67 / 37.16 / 35.93 / 25.87 PSDS1 (test) |
 | λ_iou sweep (0.5 / 1.0) | 35.42 / 33.08 PSDS1 (test) |
-| Extensions (wide model / mixup) | **43.58** / 34.22 PSDS1 (test) |
+| Best single model (wide + mild mixup) | 45.77 PSDS1 / 76.11 PSDS2 (test) |
+| **Best overall (4-model ensemble)** | **47.73 PSDS1 / 76.74 PSDS2** (test) |
 
 No paper-scale numbers are claimed yet. The tables below are filled only from
 actual runs; see `results/` and `docs/EXPERIMENTS.md`.
@@ -184,10 +188,11 @@ the paper. Deliberate scope choices:
 
 - CRNN backbone only; no ATST-F / BEATs / MN-GRU.
 - Frame-BCE + median filter baseline; SEBB and HSM3 are not reimplemented.
-- **The wide model is the best configuration in this reproduction.** A
-  32/64/128/256-channel CRNN with a 256-wide BiGRU reaches 43.58 PSDS1 on test,
-  above the 36.67 frame-BCE baseline. The default ~1M model with `λ_iou=2`
-  underperforms; see the report for the λ_iou sweep and analysis.
+- **Capacity, mild augmentation and ensembling drive the gains.** The wide
+  model reaches 43.58 PSDS1, the XL model 45.02, the wide model with mild mixup
+  45.77, and a four-model probability ensemble **47.73** on test, above the
+  36.67 frame-BCE baseline. The default ~1M model with `λ_iou=2` underperforms;
+  see the report for the λ_iou sweep and analysis.
 - **Default EPN is the single-GRU variant.** The paper uses per-class GRUs for
   AS-Strong-10 and the single GRU for the full 447 classes. On Apple-Silicon
   MPS the per-class variant launches 10 GRUs per forward and is ~12× slower; the

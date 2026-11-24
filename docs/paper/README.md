@@ -2,7 +2,9 @@
 
 | Document | Contents |
 |---|---|
-| [`technical-report.md`](technical-report.md) | Detailed explanation of arXiv:2601.04178: RED, OOL, EPN, event inference, losses, metrics, reproduction setup, results and extensions |
+| [`technical-report.pdf`](technical-report.pdf) | Compiled technical report (7 pages) |
+| [`technical-report.tex`](technical-report.tex) | LaTeX source for the report |
+| [`technical-report.md`](technical-report.md) | Markdown version of the report |
 
 The report is written as a standalone technical note. It does not assume prior
 knowledge of sound event detection.

@@ -490,10 +490,7 @@ Collar-F1 is threshold-dependent; PSDS1/PSDS2 are not.
 | Augmentation | none by default; mixup + SpecAugment in one extension |
 | Hardware | RTX PRO 4000 Blackwell, 24 GB |
 
-Code map:
-
-| Component | File |
-|---|---|
+---|---|
 | log-mel, targets, dataset | `src/data.py` |
 | CRNN, RED wrapper, EPN wrapper | `src/modules/model.py` |
 | RED scan | `src/modules/red.py` |
@@ -517,8 +514,20 @@ Test split, 40 epochs:
 | +EPN, λ_iou=2 | 25.87 | 51.41 | 13.57 | 35.95 |
 | +EPN, λ_iou=1.0 | 33.08 | 66.13 | 20.13 | 50.33 |
 | +EPN, λ_iou=0.5 | 35.42 | 69.83 | 21.39 | 55.17 |
-| Extension: wide model | **43.58** | **73.73** | **28.12** | **62.30** |
-| Extension: synthetic mixup | 34.22 | 67.80 | 20.99 | 52.89 |
+| Wide model, 40 ep | 43.58 | 73.73 | 28.12 | 62.30 |
+| Wide model, 100 ep | 44.28 | 70.77 | 31.50 | 63.16 |
+| Wide, OOL=10 | 42.97 | 72.62 | 28.87 | 61.47 |
+| XL model | 45.02 | 72.38 | 31.98 | 63.56 |
+| Wide + mild mixup | 45.77 | 76.11 | 30.63 | 64.06 |
+| XL + class-wise median | 44.05 | 73.28 | 32.16 | 63.56 |
+| Ensemble: 3 models | 46.81 | 75.17 | 30.77 | — |
+| **Ensemble: 4 models** | **47.73** | **76.74** | **30.99** | — |
+
+![Main comparison](figures/fig_main_comparison.png)
+
+![IoU and post-processing](figures/fig_iou_sweep.png)
+
+![Training curves](figures/fig_training_curves.png)
 
 Main observations:
 
@@ -526,8 +535,10 @@ Main observations:
 - OOL at λ=100 does not help on URBAN-SED.
 - The IoU weight is critical: λ=2 collapses performance, λ=0.5 recovers most of
   it. The paper tunes this weight per backbone.
-- The wide model is the only configuration clearly above the frame-wise
-  baseline. Capacity matters more than the boundary losses at this scale.
+- Capacity, longer training and mild augmentation help. The wide model reaches
+  43.58 PSDS1, the XL model 45.02, and wide + mild mixup 45.77.
+- A four-model probability ensemble reaches **47.73 PSDS1 / 76.74 PSDS2**, the
+  best result in this reproduction.
 - Synthetic max-mixing at p=0.5 is too aggressive and hurts.
 
 Full details: [`docs/reports/2026-11-24/urbansed-crnn/report.md`](../reports/2026-11-24/urbansed-crnn/report.md).
@@ -591,6 +602,7 @@ Results of these experiments will be added to this report and to
 1. F. Schmid et al., “Sound Event Detection with Boundary-Aware Optimization
    and Inference,” arXiv:2601.04178, 2026.
 2. J. Salamon et al., “URBAN-SED,” Zenodo, 2017.
+   (The compiled PDF contains the full 31-entry bibliography.)
 3. J. Ebbers et al., “Threshold Independent Evaluation of Sound Event Detection
    Scores,” ICASSP 2022.
 4. Ç. Bilen et al., “A Framework for the Robust Evaluation of Sound Event

@@ -32,8 +32,15 @@ Generated from `results/*/test_metrics.json` by
 | +EPN (`λ_iou = 2`) | 25.87 | 51.41 | 13.57 | 35.95 | 2.0604 | [qcfakcan](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/qcfakcan) |
 | +EPN (`λ_iou = 0.5`) | 35.42 | 69.83 | 21.39 | 55.17 | 0.9036 | [4gfycpim](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/4gfycpim) |
 | +EPN (`λ_iou = 1.0`) | 33.08 | 66.13 | 20.13 | 50.33 | 1.2888 | [0yocd0ei](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/0yocd0ei) |
-| Extension: wide model | **43.58** | **73.73** | 28.12 | **62.30** | 0.8765 | [mroixs95](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/mroixs95) |
-| Extension: synthetic mixup | 34.22 | 67.80 | 20.99 | 52.89 | 0.9090 | [d91r1vb4](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/d91r1vb4) |
+| Extension: wide model, 40 ep | 43.58 | 73.73 | 28.12 | 62.30 | 0.8765 | [mroixs95](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/mroixs95) |
+| Extension: wide model, 100 ep | 44.28 | 70.77 | 31.50 | 63.16 | 1.1088 | — |
+| Extension: wide, OOL=10 | 42.97 | 72.62 | 28.87 | 61.47 | 0.6188 | — |
+| Extension: XL model | 45.02 | 72.38 | 31.98 | 63.56 | 0.9622 | — |
+| Extension: wide + mild mixup | 45.77 | 76.11 | 30.63 | 64.06 | 0.8308 | — |
+| XL + class-wise median | 44.05 | 73.28 | 32.16 | 63.56 | — | — |
+| Ensemble: XL + wide100 + OOL10 | 46.81 | 75.17 | 30.77 | — | — | — |
+| **Ensemble: four models** | **47.73** | **76.74** | **30.99** | — | — | — |
+| Extension: synthetic mixup, p=0.5 | 34.22 | 67.80 | 20.99 | 52.89 | 0.9090 | [d91r1vb4](https://forge.coreweave.com/wandb/octoopt/epn-sed/runs/d91r1vb4) |
 
 `+EPN` rows are the full method at three IoU weights. The wide model is the
 same method with 32/64/128/256 conv channels and a 256-wide BiGRU; mixup uses
@@ -48,14 +55,16 @@ the default model with max-mixing and SpecAugment.
 3. **The IoU loss weight is critical.** `+EPN` collapses to 25.87 at
    `λ_iou = 2`, improves to 33.08 at 1.0 and 35.42 at 0.5. The paper tunes
    `λ_iou`; URBAN-SED prefers a much smaller value than our initial default.
-4. **Model capacity gives the best result.** The wide model reaches
-   **43.58 PSDS1 / 73.73 PSDS2**, the only configuration clearly above the
-   baseline. This suggests the temporal components need more capacity than the
-   ~1M-parameter CRNN.
-5. **Synthetic mixup is not a free win.** Max-mixing + SpecAugment reaches
-   34.22, below the baseline. The augmentation likely creates unrealistic
-   overlapping events and too many masked regions at `p = 0.5`.
-6. **EPN inference vs median filtering is mixed.** On the wide model,
+4. **Capacity and training length help.** Wide-40 reaches 43.58, wide-100
+   44.28, and XL 45.02 PSDS1. The temporal components need more capacity than
+   the ~1M-parameter CRNN.
+5. **Mild augmentation is the best single model.** Reducing max-mix to `p=0.2`
+   and weakening SpecAugment gives **45.77 PSDS1 / 76.11 PSDS2 / 30.63
+   collar-F1**. The earlier `p=0.5` run was too aggressive (34.22).
+6. **Ensembling gives the best result.** Averaging four checkpoints (mild
+   mixup, XL, wide-100, wide-OOL10) reaches **47.73 PSDS1 / 76.74 PSDS2**, the
+   best configuration in this reproduction.
+7. **EPN inference vs median filtering is mixed.** On the wide model,
    EPN gives 43.58 PSDS1 / 28.12 collar-F1; median filtering with the
    validation-tuned setting (threshold 0.4, length 3) gives 43.00 PSDS1 /
    30.24 collar-F1. On the default model, tuned median gives 25.62 PSDS1 vs

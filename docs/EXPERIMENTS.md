@@ -58,8 +58,20 @@ command, result, and decision.
   - wide model: **43.58 / 73.73 / 28.12**
   - synthetic mixup: 34.22 / 67.80 / 20.99
 - **Decision:** λ_iou=2 is too high for URBAN-SED; RED alone is competitive;
-  the wide model is the best configuration. Follow up with per-class EPN,
-  λ_ool tuning and 100-epoch runs.
+  capacity, 100-epoch training and mild augmentation help. Follow up with
+  per-class EPN and more seeds.
+
+## 2026-11-24 — improvement round
+
+- **Result (test PSDS1 / PSDS2 / collar-F1):**
+  - wide-100: 44.28 / 70.77 / 31.50
+  - wide, OOL=10: 42.97 / 72.62 / 28.87
+  - XL: 45.02 / 72.38 / 31.98
+  - wide + mild mixup: 45.77 / 76.11 / 30.63
+  - XL + class-wise median: 44.05 / 73.28 / 32.16
+  - ensemble (4 models): **47.73 / 76.74 / 30.99**
+- **Decision:** keep the 4-model ensemble as the best configuration. Class-wise
+  median improves collar-F1 but not PSDS1. Mild mixup is the best single model.
 
 ## 2026-11-23 — component study on URBAN-SED
 
