@@ -34,9 +34,7 @@ from src.utils.model_utils import detect_device  # noqa: E402
 
 
 @torch.no_grad()
-def ensemble(
-    ckpts: list[Path], data_root: str, split: str, batch_size: int = 32
-):
+def ensemble(ckpts: list[Path], data_root: str, split: str, batch_size: int = 32):
     """Collect averaged presence/duration outputs for a split."""
     device = detect_device()
     models, cfgs = [], []
@@ -45,7 +43,9 @@ def ensemble(
         models.append(model)
         cfgs.append(cfg)
     dataset = SEDDataset(data_root, split)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collate)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=collate
+    )
     presence, don, doff, gt = [], [], [], []
     for batch in loader:
         mel = batch["mel"].float().to(device)

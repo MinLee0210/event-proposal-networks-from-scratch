@@ -36,7 +36,9 @@ def collect(ckpt: Path, data_root: str, split: str, batch_size: int = 64):
     device = detect_device()
     model, cfg = load_model(ckpt, device)
     dataset = SEDDataset(data_root, split)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=collate)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=collate
+    )
     presence, gt = [], []
     for batch in loader:
         out = model(batch["mel"].float().to(device))
@@ -53,7 +55,9 @@ def collect(ckpt: Path, data_root: str, split: str, batch_size: int = 64):
     return torch.cat(presence), gt, cfg
 
 
-def class_events(presence: torch.Tensor, class_id: int, threshold: float, filter_len: int):
+def class_events(
+    presence: torch.Tensor, class_id: int, threshold: float, filter_len: int
+):
     """Median-filter events for one class channel."""
     events = median_filter_events(
         presence[:, class_id : class_id + 1],
@@ -61,7 +65,9 @@ def class_events(presence: torch.Tensor, class_id: int, threshold: float, filter
         threshold=threshold,
         filter_len=filter_len,
     )
-    return [[Event(class_id, e.onset, e.offset, e.score) for e in clip] for clip in events]
+    return [
+        [Event(class_id, e.onset, e.offset, e.score) for e in clip] for clip in events
+    ]
 
 
 def combine(base, replacement, class_id: int):
@@ -94,7 +100,10 @@ def main() -> None:
 
     settings = {c: (thresholds[0], filter_lens[0]) for c in range(num_classes)}
     preds = median_filter_events(
-        presence, frame_rate=cfg.frame_rate, threshold=settings[0][0], filter_len=settings[0][1]
+        presence,
+        frame_rate=cfg.frame_rate,
+        threshold=settings[0][0],
+        filter_len=settings[0][1],
     )
     best = psds1(preds, gt, dataset_duration=duration)["psds1"]
     print(f"start: {best * 100:.2f}  {settings}")
@@ -117,12 +126,16 @@ def main() -> None:
             print(f"pass {p} class {c}: {settings[c]}  psds1={best * 100:.2f}")
 
     result = {
-        "settings": {str(c): {"threshold": s[0], "filter_len": s[1]} for c, s in settings.items()},
+        "settings": {
+            str(c): {"threshold": s[0], "filter_len": s[1]} for c, s in settings.items()
+        },
         "val_psds1": best,
     }
 
     if args.test_split:
-        test_presence, test_gt, test_cfg = collect(args.ckpt, args.data_root, args.test_split)
+        test_presence, test_gt, test_cfg = collect(
+            args.ckpt, args.data_root, args.test_split
+        )
         # Build the full test prediction list, then replace each class setting.
         base = median_filter_events(
             test_presence,
