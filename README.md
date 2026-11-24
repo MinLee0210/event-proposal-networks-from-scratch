@@ -103,6 +103,10 @@ A 300-clip, 6-epoch sample run is logged at
 | `configs/crnn_urbansed_mixup.yaml` | max-mix synthetic event mixing + SpecAugment | EPN |
 | `configs/crnn_urbansed_iou05.yaml` | full method, `λ_iou = 0.5` | EPN |
 | `configs/crnn_urbansed_iou1.yaml` | full method, `λ_iou = 1.0` | EPN |
+| `configs/crnn_large100.yaml` | wide model, 100 epochs | EPN |
+| `configs/crnn_large_ool10.yaml` | wide model, `λ_ool = 10` | EPN |
+| `configs/crnn_xl.yaml` | XL CRNN/EPN | EPN |
+| `configs/crnn_large_mixup_mild.yaml` | wide model, mild mixup + SpecAugment | EPN |
 
 Architecture is in `src/config.py` (`SEDConfig`); training, loss weights and
 post-processing are in `configs/*.yaml`.

@@ -28,6 +28,8 @@ scripts/
 | `training/run_ablations.sh` | Run BL / +RED / +OOL / +EPN sequentially |
 | `training/run_extensions.sh` | Run the wider-model and synthetic-mixup extensions |
 | `training/make_report.py` | Build `summary.csv` / `report.md` from `results/*/test_metrics.json` |
+| `training/tune_classwise.py` | Coordinate-descent class-wise median-filter tuning |
+| `training/ensemble.py` | Probability ensemble of several checkpoints |
 
 Typical order:
 
