@@ -5,6 +5,7 @@ Utility entrypoints, grouped by category. Run them from the repo root, e.g.
 
 ```
 scripts/
+├── analysis/   paper figures from result JSON
 ├── data/       download / preprocess / synthetic generators
 └── training/   train / evaluate / smoke-test / post-processing tuning
 ```
@@ -30,6 +31,12 @@ scripts/
 | `training/make_report.py` | Build `summary.csv` / `report.md` from `results/*/test_metrics.json` |
 | `training/tune_classwise.py` | Coordinate-descent class-wise median-filter tuning |
 | `training/ensemble.py` | Probability ensemble of several checkpoints |
+
+## analysis/
+
+| Script | Purpose |
+|---|---|
+| `analysis/make_paper_figures.py` | Regenerate the report PNG figures from `results/` |
 
 Typical order:
 

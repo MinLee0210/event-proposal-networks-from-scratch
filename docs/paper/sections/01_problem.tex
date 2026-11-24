@@ -1,0 +1,27 @@
+\section{The problem: sound event detection}
+
+Sound event detection (SED) takes an audio clip and returns a set of events
+\begin{equation}
+\mathcal{E} = \{(c_j,\; t^{\mathrm{start}}_j,\; t^{\mathrm{end}}_j)\},
+\end{equation}
+where $c_j$ is the event class and the two timestamps are its boundaries.
+
+There are two common designs. \emph{Event-based} systems directly predict a set
+of events, but need complex objectives such as Hungarian matching.
+\emph{Frame-wise} systems predict, for every class $c$ and frame $t$, a
+probability that the event is active:
+\begin{equation}
+\hat p^{\pres}_{c,t} = P(e_{c,t}=1).
+\end{equation}
+Frame-wise models are the dominant paradigm because they train well with
+multiple-instance learning and simple architectures such as a convolutional
+recurrent neural network (CRNN), and they work with weakly labelled data.
+
+Their weakness is converting frame probabilities into events. The standard
+recipe is: (i) smooth the probability curve, usually with a median filter;
+(ii) threshold it; (iii) group consecutive active frames into events. The filter
+length and threshold are tuned on a validation set after training. This
+post-processing is non-differentiable and can discard information the model
+learned. The paper's goal is to remove that separate tuning step by learning
+event boundaries and proposals inside the model.
+

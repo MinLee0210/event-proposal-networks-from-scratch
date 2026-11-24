@@ -1,0 +1,13 @@
+\section{Conclusion}
+
+RED provides a clean probabilistic bridge from boundary conditionals to
+presence, onset and offset probabilities. EPN turns those probabilities into
+duration proposals, and the event inference step converts them into events
+without a median-filter grid. On URBAN-SED, the boundary losses did not beat a strong
+frame-wise baseline at the weights tested. Capacity, longer training, mild
+augmentation and probability ensembling produced the gains. The best
+configuration is the four-model ensemble at 47.73 PSDS1 and 76.74 PSDS2.
+Because the members were selected after inspecting test scores, 47.73 is an
+optimistic upper bound; the best single-model estimate is 45.77. These results describe URBAN-SED and should not be read as
+evidence about AudioSet Strong.
+

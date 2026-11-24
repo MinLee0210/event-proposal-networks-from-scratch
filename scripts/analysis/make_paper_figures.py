@@ -1,7 +1,7 @@
 """Generate the data figures for the technical report.
 
-Reads `results/*/test_metrics.json` and `train_log.json`; writes PDF (vector)
-and PNG (preview) versions into `docs/paper/figures/`.
+Reads `results/*/test_metrics.json` and `train_log.json`; writes 300-DPI PNG
+figures into `docs/paper/figures/`.
 """
 
 import json
@@ -10,8 +10,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[3]
-FIG = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
+FIG = ROOT / "docs" / "paper" / "figures"
 
 plt.rcParams.update(
     {
@@ -110,7 +110,6 @@ def color_for(run: str) -> str:
 
 
 def save(fig, name: str) -> None:
-    fig.savefig(FIG / f"{name}.pdf")
     fig.savefig(FIG / f"{name}.png", dpi=300)
     plt.close(fig)
     print("wrote", name)

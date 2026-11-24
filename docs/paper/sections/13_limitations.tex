@@ -1,0 +1,20 @@
+\section{Limitations}
+
+\begin{itemize}
+\item URBAN-SED is not AudioSet Strong; absolute numbers are not comparable to
+      the paper.
+\item The paper trains up to 100 epochs and tunes the learning rate per
+      backbone; this reproduction uses one seed, and most runs use 40 epochs.
+      No variance estimates are available, so small differences should not be
+      treated as significant.
+\item The default EPN is the single-GRU variant because per-class GRUs are slow
+      on the available hardware.
+\item SEBB and HSM3 baselines are not implemented.
+\item PSDS1 uses IoU-0.5 matching as stated in the paper; the official
+      \texttt{psds\_eval} DTC/GTC criterion is slightly different.
+\item Collar-F1 is reported at a configured threshold and not exhaustively
+      tuned per class. Per-class scores are stored in the result JSON files but
+      are not tabulated here.
+\item All runs use one 24GB GPU; wall-clock training time was not profiled.
+\end{itemize}
+

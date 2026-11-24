@@ -1,0 +1,15 @@
+\section{Experiments aimed at improving PSDS1}
+
+The improvement runs are complete. Figure~\ref{fig:iou-post} shows the IoU
+sweep and the post-processing comparison. The strongest single models are:
+\begin{itemize}
+\item wide model with mild mixup: 45.77 PSDS1, 30.63 collar-F1;
+\item XL model: 45.02 PSDS1, 31.98 collar-F1;
+\item wide model, 100 epochs: 44.28 PSDS1, 31.50 collar-F1.
+\end{itemize}
+Longer training and extra capacity both help. Lowering the boundary loss weight
+does not. Class-wise median tuning reaches 44.05 PSDS1 and 32.16 collar-F1 on
+the XL model. Mild mixup ($p=0.2$) gives 45.77 PSDS1 and 76.11 PSDS2. The
+four-model ensemble (mild mixup, XL, wide-100, wide-OOL10) gives the best
+result, \textbf{47.73 PSDS1} and 76.74 PSDS2.
+

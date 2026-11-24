@@ -1,0 +1,69 @@
+\section{Evaluation metrics}
+
+\subsection{PSDS1}
+PSDS1 is threshold-independent. For class $c$ and an operating point,
+\begin{equation}
+r_c=\frac{TP_c}{TP_c+FN_c},
+\qquad
+f_c=\frac{FP_c\cdot 3600}{T_{\mathrm{ds}}},
+\end{equation}
+where $T_{\mathrm{ds}}$ is the evaluation duration in seconds and $f_c$ is false
+positives per hour. A prediction matches a ground-truth event of the same class
+when their temporal IoU is at least $0.5$. Published DCASE PSDS1 uses the
+DTC/GTC criterion (typically $0.7$); this report follows the paper's IoU-0.5
+wording and labels the resulting score PSDS1@IoU0.5 where the distinction
+matters. Per-class curves are averaged:
+\begin{equation}
+\bar r(f)=\frac{1}{C}\sum_{c=1}^{C}r_c(f),
+\qquad
+\mathrm{PSDS1}
+=
+\frac{1}{e_{\max}}
+\int_0^{e_{\max}}\bar r(f)\,df,
+\end{equation}
+with $e_{\max}=100$ false positives per hour. Following the paper, PSDS1 sets
+the inter-class variance penalty to zero ($\alpha_{\mathrm{ST}}=0$); PSDS2 uses
+$\alpha_{\mathrm{ST}}=1$.
+
+\subsection{PSDS2}
+PSDS2 is the DCASE scenario-2 metric as implemented here: DTC $=0.1$,
+GTC $=0.1$, CTTC $=0.3$ (this is our configuration, not a metric reported by the
+source paper),
+cross-trigger weight $\alpha_{\mathrm{CT}}=0.5$, and variance penalty
+$\alpha_{\mathrm{ST}}=1$. The effective false-positive rate adds cross-triggers:
+\begin{equation}
+e_c
+=
+f_c
++
+\alpha_{\mathrm{CT}}
+\frac{1}{C-1}
+\sum_{k\ne c}
+\frac{CT_{c,k}\cdot 3600}{T_k},
+\end{equation}
+where $CT_{c,k}$ is the number of class-$c$ detections cross-triggering class
+$k$, and $T_k$ is the total activity duration of class $k$. The effective TPR
+penalises class instability:
+\begin{equation}
+\tilde r(f)=\bar r(f)-\alpha_{\mathrm{ST}}\,\sigma_r(f),
+\end{equation}
+where $\sigma_r(f)$ is the standard deviation of the per-class TPRs at
+effective FPR $f$.
+
+\subsection{Collar-F1}
+Collar-F1 matches an event when
+\begin{equation}
+|\hat t_{\on}-t_{\on}|\le 0.2,
+\qquad
+|\hat t_{\off}-t_{\off}|\le \max(0.2,\;0.2\,d),
+\end{equation}
+where $d$ is the ground-truth duration. With matched counts,
+\begin{equation}
+P=\frac{TP}{TP+FP},
+\qquad
+R=\frac{TP}{TP+FN},
+\qquad
+F_1=\frac{2PR}{P+R}.
+\end{equation}
+Collar-F1 is threshold-dependent; PSDS1 and PSDS2 are not.
+

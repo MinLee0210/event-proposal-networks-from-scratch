@@ -1,0 +1,44 @@
+\section{Background and related work}
+
+SED research has two broad lines. Frame-wise systems predict a probability per
+class and frame. Early work paired convolutional features with recurrent layers
+\cite{cakir2017}, added gating \cite{xu2018}, or used dilated convolutions
+\cite{li2020}. These models train with weak clip labels through multiple-instance
+learning \cite{kumar2016,wang2019} and remain the backbone of current DCASE
+systems. Event-based systems predict a set of intervals directly
+\cite{venkatesh2022,ye2021,bhosale2024}. They avoid post-processing but need
+complex assignment rules such as Hungarian matching, and their training is less
+stable on small datasets.
+
+Frame-wise outputs still need a decision rule. Median filtering is the standard
+choice in DCASE baselines \cite{turpault2019}. Sound event bounding boxes (SEBB)
+\cite{ebbers2024} and hidden semi-Markov models (HSM3) \cite{yoshinaga2025}
+improve on median filtering, but both add a separate inference stage with
+hyperparameters tuned after training. The paper studied here replaces that stage
+with learned proposals.
+
+The datasets shape the problem. DESED \cite{turpault2019} mixes real and
+synthetic domestic recordings. AudioSet Strong \cite{hershey2021} provides
+strong labels at web scale. URBAN-SED \cite{salamon2017urbansed} synthesises
+10-second urban scenes from UrbanSound8K clips \cite{salamon2014}; it is small
+enough for a single GPU and has clean strong labels, which makes it useful for
+method studies. General introductions to the task and its metrics appear in
+\cite{mesaros2021,virtanen2018}.
+
+Architecture choices matter as much as the temporal layer. Frequency dynamic
+convolution (FDY) \cite{nam2022fdy} adapts kernels across frequency bands.
+Audio transformers such as ATST \cite{li2024atst} and BEATs
+\cite{chen2023beats} provide strong pretrained representations. Efficient CNN
+and CRNN variants \cite{morocutti2025} trade accuracy for speed. Conformer and
+multi-resolution systems \cite{barahona2023} improve long-range modelling.
+Training recipes add mixup \cite{zhang2018mixup}, SpecAugment
+\cite{park2019specaugment}, Freq-MixStyle \cite{kim2022freqmix} and
+FilterAugment \cite{nam2022filteraug}; semi-supervised variants use consistency
+training \cite{tarvainen2017}.
+
+Evaluation has moved from threshold-dependent event F1 to PSDS
+\cite{bilen2020}. The threshold-independent formulation of Ebbers et al.
+\cite{ebbers2022} is now standard, and later work studies evaluation without
+post-processing \cite{ebbers2023}. This report reports PSDS1, PSDS2 and
+collar-F1, and treats PSDS1 as the primary localisation metric.
+

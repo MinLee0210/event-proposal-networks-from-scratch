@@ -1,0 +1,82 @@
+\section{EPN: Event Proposal Network}
+
+\subsection{Duration prediction}
+EPN takes the three RED outputs per class and frame,
+$[\hat p^{\pres}_{c,t},\hat p^{\on}_{c,t},\hat p^{\off}_{c,t}]$, and predicts
+two non-negative durations:
+\begin{align}
+\hat d^{\on}_{c,t} &= \Softplus(h^{\on}_{c,t}),\\
+\hat d^{\off}_{c,t} &= \Softplus(h^{\off}_{c,t}),
+\end{align}
+where $h$ is the output of a bidirectional GRU followed by a linear layer.
+The proposal for frame $t$ is
+\begin{equation}
+\hat r_{c,t}
+=
+[t-\hat d^{\on}_{c,t},\; t+\hat d^{\off}_{c,t}].
+\end{equation}
+Two variants exist: \emph{per-class GRUs} (one GRU per class, input
+$[0,1]^{3\times T}$) and a \emph{single GRU} over all classes (input
+$[0,1]^{3C\times T}$). The per-class variant is used for AS-Strong-10; the
+single-GRU variant is used for many classes. Both are implemented.
+
+\subsection{IoU loss}
+For a frame inside an event, the ground-truth interval is
+\begin{equation}
+r_{c,t}
+=
+[t-d^{\on}_{c,t},\; t+d^{\off}_{c,t}].
+\end{equation}
+Both $r_{c,t}$ and $\hat r_{c,t}$ contain $t$, so intersection and union have a
+closed form:
+\begin{equation}
+\IoU_{c,t}
+=
+\frac{
+\min(d^{\on}_{c,t},\hat d^{\on}_{c,t})
++
+\min(d^{\off}_{c,t},\hat d^{\off}_{c,t})
+}{
+\max(d^{\on}_{c,t},\hat d^{\on}_{c,t})
++
+\max(d^{\off}_{c,t},\hat d^{\off}_{c,t})
+}.
+\end{equation}
+The loss is evaluated on active frames and weighted by ground-truth duration:
+\begin{equation}
+\mathcal{L}_{\mathrm{iou}}
+=
+\frac{1}{\sum_{c,t} y^{\pres}_{c,t}}
+\sum_{c,t}
+y^{\pres}_{c,t}
+\left(1-\IoU_{c,t}\right)
+\left(d^{\on}_{c,t}+d^{\off}_{c,t}\right).
+\end{equation}
+\begin{algorithm}[t]
+\caption{Duration-weighted IoU loss for one batch}
+\label{alg:iou}
+\begin{algorithmic}[1]
+\Require predicted $\hat d^{\on},\hat d^{\off}$; targets $d^{\on},d^{\off}$;
+         presence labels $y^{\pres}$
+\State $inter \gets \min(\hat d^{\on},d^{\on})+\min(\hat d^{\off},d^{\off})$
+\State $union \gets \max(\hat d^{\on},d^{\on})+\max(\hat d^{\off},d^{\off})$
+\State $iou \gets inter / \max(union,\epsilon)$ \Comment{$\epsilon=10^{-7}$}
+\State $weight \gets d^{\on}+d^{\off}$
+\State $L \gets \sum y^{\pres}(1-iou)\,weight
+       \big/ \max(\sum y^{\pres},1)$
+\State \Return $L$
+\end{algorithmic}
+\end{algorithm}
+
+The implementation follows the algebra in Algorithm~\ref{alg:iou}. Both
+intervals contain $t$, so the intersection and union reduce to sums of minima
+and maxima; no interval sorting is needed. The duration factor weights every active frame by the length of its event, so
+longer events contribute more to the sum than shorter ones. This is not an
+equal-per-event weighting; it is the form used in the paper, where it was more
+stable than direct duration regression. In our URBAN-SED runs the weight
+mattered: $\lambda_{\mathrm{iou}}=2$ gave 25.87 PSDS1, while $0.5$ gave 35.42.
+The paper tunes this value per backbone. On URBAN-SED the choice moves PSDS1 by
+about 9.5 points, which is larger than the gain the method was meant to deliver;
+$\lambda_{\mathrm{iou}}=4$ was not run, and no cross-dataset transfer claim is
+made.
+

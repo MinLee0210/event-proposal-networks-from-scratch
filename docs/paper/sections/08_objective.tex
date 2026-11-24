@@ -1,0 +1,49 @@
+\section{Combined training objective}
+
+The full loss is
+\begin{equation}
+\boxed{
+\mathcal{L}
+=
+\mathcal{L}_{\pres}
++
+\lambda_{\mathrm{ool}}
+\left(\mathcal{L}_{\on}+\mathcal{L}_{\off}\right)
++
+\lambda_{\mathrm{iou}}\mathcal{L}_{\mathrm{iou}}
+}
+\end{equation}
+with
+\begin{equation}
+\mathcal{L}_{\pres}
+=
+-\frac{1}{BCT}
+\sum_{b,c,t}
+\left[
+y_{b,c,t}\log\hat p_{b,c,t}
++
+(1-y_{b,c,t})\log(1-\hat p_{b,c,t})
+\right].
+\end{equation}
+The paper uses $\lambda_{\mathrm{ool}}=100$, focal $\alpha=2$, and tunes
+$\lambda_{\mathrm{iou}}\in\{0.5,1,2,4\}$.
+
+Table~\ref{tab:ablation} lists the four component configurations. All rows use
+the same backbone, split and epoch budget; only the loss switches change.
+
+\begin{table}[!ht]
+\centering
+\caption{Component ablation.}
+\label{tab:ablation}
+\begin{tabular}{lccc}
+\toprule
+Configuration & Presence BCE & OOL & IoU \\
+\midrule
+BL      & frame logits  & -- & -- \\
++RED    & RED presence  & -- & -- \\
++OOL    & RED presence  & \checkmark & -- \\
++EPN    & RED presence  & \checkmark & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{table}
+

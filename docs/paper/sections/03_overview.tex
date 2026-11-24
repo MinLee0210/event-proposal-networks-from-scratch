@@ -1,0 +1,64 @@
+\section{Overview of the proposed method}
+
+The method keeps a standard frame-wise acoustic model but changes what the model
+predicts and how events are extracted.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=8mm and 9mm,
+  box/.style={draw, rounded corners=3pt, fill=white, minimum width=2.15cm,
+              minimum height=0.78cm, align=center, font=\small, inner sep=3pt},
+  group/.style={draw, rounded corners=7pt, inner sep=8pt},
+  arr/.style={-{Latex[length=2mm]}, thick, draw=black!70}
+]
+\node[box] (mel) {log-mel};
+\node[box, right=of mel] (crnn) {CRNN};
+\node[box, right=of crnn] (logits) {start / end\\logits};
+\node[box, below=1.1cm of logits] (red) {RED};
+\node[box, below=0.95cm of red] (probs) {presence / onset / offset};
+\node[box, below left=1.15cm and 1.15cm of probs] (epn) {EPN\\durations};
+\node[box, below=1.15cm of probs] (infer) {Event inference};
+\node[box, right=1.0cm of infer] (events) {events};
+
+\draw[arr] (mel) -- (crnn);
+\draw[arr] (crnn) -- (logits);
+\draw[arr] (logits) -- (red);
+\draw[arr] (red) -- (probs);
+\draw[arr] (probs.south) -- (infer.north);
+\draw[arr] (probs.west) -- ++(-0.55,0) |- (epn.north);
+\draw[arr] (epn.east) -- node[above, font=\scriptsize] {proposals} (infer.west);
+\draw[arr] (infer.east) -- (events.west);
+
+
+\begin{scope}[on background layer]
+  \node[group, fill=blue!6, fit=(mel)(crnn)(logits)] (g1) {};
+  \node[group, fill=orange!8, fit=(red)(probs)] (g2) {};
+  \node[group, fill=green!7, fit=(epn)(infer)(events)] (g3) {};
+  \node[anchor=south west, font=\scriptsize\bfseries, text=blue!45!black]
+       at (g1.north west) {Acoustic model};
+  \node[anchor=south west, font=\scriptsize\bfseries, text=orange!55!black]
+       at (g2.north west) {RED};
+  \node[anchor=south east, font=\scriptsize\bfseries, text=green!45!black]
+       at (g3.north east) {Event proposals and inference};
+\end{scope}
+\end{tikzpicture}
+\caption{Pipeline of the boundary-aware SED method. The acoustic model emits
+start and end logits; RED turns them into presence/onset/offset probabilities;
+EPN predicts a duration interval per frame; the event inference step selects
+proposals and returns events. The training objectives are BCE on presence, focal loss on
+onset/offset, and the duration-weighted IoU loss on proposals.}
+\label{fig:pipeline}
+\end{figure}
+
+Three components are added:
+\begin{enumerate}
+\item \textbf{RED} turns conditional start/end probabilities into presence,
+      onset and offset probabilities.
+\item \textbf{OOL} applies focal losses to the sparse onset/offset labels.
+\item \textbf{EPN} predicts a time interval around each frame and replaces
+      median filtering with a proposal-selection algorithm.
+\end{enumerate}
+The acoustic model outputs two logits per class per frame: a start logit and an
+end logit.
+

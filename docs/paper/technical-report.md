@@ -1,5 +1,7 @@
 # Technical Report: Sound Event Detection with Boundary-Aware Optimization and Inference
 
+**Le Duc Minh** · `minh.leduc.0210@gmail.com`
+
 This report explains the paper **“Sound Event Detection with Boundary-Aware
 Optimization and Inference”** (Schmid et al., arXiv:2601.04178) and the
 reproduction in this repository. It is written so that a reader who knows basic

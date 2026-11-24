@@ -1,0 +1,54 @@
+\section{RED: Recurrent Event Detection}
+
+\subsection{Notation}
+For one class, let
+\begin{itemize}
+\item $e_t\in\{0,1\}$ be the event-presence variable at frame $t$;
+\item $s_t=P(e_t=1\mid e_{t-1}=0)$ be the conditional start probability;
+\item $z_t=P(e_t=0\mid e_{t-1}=1)$ be the conditional end probability;
+\item $p_t=P(e_t=1)$ be the presence probability.
+\end{itemize}
+The model produces start and end logits; a sigmoid gives $s_t$ and $z_t$.
+
+\subsection{The recurrence}
+Assume $p_{-1}=0$. Presence at $t$ can come from two cases: an event starts at
+$t$ (probability $s_t$, previous frame inactive with probability $1-p_{t-1}$),
+or an event was active and does not end at $t$ (probability $1-z_t$, previous
+frame active with probability $p_{t-1}$). Therefore
+\begin{equation}
+\boxed{p_t = s_t(1-p_{t-1}) + (1-z_t)p_{t-1}}.
+\end{equation}
+The onset and offset probabilities are
+\begin{equation}
+\mathrm{onset}_t = s_t(1-p_{t-1}),
+\qquad
+\mathrm{offset}_t = z_t p_{t-1}.
+\end{equation}
+Presence rises at onsets and falls at offsets, while remaining smooth
+elsewhere.
+
+\subsection{Why it is cheap}
+Rewrite the recurrence as an affine scan:
+\begin{equation}
+p_t = a_t p_{t-1} + b_t,
+\qquad
+a_t = 1-s_t-z_t,
+\qquad
+b_t = s_t.
+\end{equation}
+Affine recurrences compose associatively:
+\begin{equation}
+(a_1,b_1)\circ(a_2,b_2)
+=
+(a_2a_1,\; a_2b_1+b_2).
+\end{equation}
+This permits a parallel prefix scan in $O(\log T)$ sequential steps instead of
+$T$ Python iterations. The implementation uses a Hillis--Steele scan \cite{heinsen2023}; a sequential
+reference is kept for tests. RED has no learnable parameters.
+
+\subsection{Why this helps}
+The acoustic model no longer learns one presence curve directly. It learns two
+simpler conditional ``switch'' signals: when an event starts and when it ends.
+Presence is derived deterministically. The onset and offset outputs are
+temporally localised peaks, exactly what the boundary losses can supervise.
+

@@ -1,0 +1,30 @@
+\section{OOL: Onset--Offset Loss}
+
+Ground-truth onset and offset labels are derived from annotations:
+$y^{\on}_{c,t}=1$ on the first frame of each event, $y^{\off}_{c,t}=1$ on the
+first frame after each event, and zero elsewhere. These labels are extremely
+sparse: a 10-second clip has only a handful of boundary frames out of 500.
+Plain BCE would be dominated by negatives, so the paper uses a focal loss with
+focusing exponent $2$ (the paper writes this as $\alpha=2$; in the focal-loss
+literature the exponent is usually $\gamma$):
+\begin{equation}
+\mathcal{L}_{\on/\off}
+=
+-\frac{1}{CT}
+\sum_{c=1}^{C}\sum_{t=1}^{T}
+\begin{cases}
+(1-\hat p_{c,t})^{\alpha}\log \hat p_{c,t}, & y_{c,t}=1,\\[3pt]
+\hat p_{c,t}^{\alpha}\log(1-\hat p_{c,t}), & y_{c,t}=0.
+\end{cases}
+\end{equation}
+The implementation computes both terms separately:
+\begin{equation}
+\mathcal{L}_{\mathrm{ool}}
+=
+\mathcal{L}_{\on}+\mathcal{L}_{\off}.
+\end{equation}
+For a positive boundary frame with low predicted probability, the factor
+$(1-\hat p)^2$ is near one and the loss is large. For an easy negative with low
+probability, $\hat p^2$ is tiny and the loss is suppressed. Because RED couples
+presence, onset and offset, these losses also shape the presence curve.
+

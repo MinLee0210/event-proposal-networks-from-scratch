@@ -1,0 +1,35 @@
+\section{Reproduction setup}
+
+\begin{sloppypar}
+Table~\ref{tab:config} lists the shared configuration. The default model has
+about 1.0M parameters. The wide model uses 32/64/128/256 conv channels and a
+256-wide BiGRU (4.0M parameters); the XL model uses 48/96/192/384 channels and
+a 384-wide BiGRU (8.9M parameters), batch 32 and LR $6\times10^{-4}$. Extension
+runs change capacity, epochs, loss weight or augmentation and are marked as
+such in Table~\ref{tab:results}. The repository at
+\url{https://github.com/MinLee0210/event-proposal-networks-from-scratch}
+contains the code, configs and result JSON files used for every row.
+\end{sloppypar}
+
+\begin{table}[!ht]
+\centering
+\caption{Reproduction configuration.}
+\label{tab:config}
+\begin{tabular}{ll}
+\toprule
+Dataset & URBAN-SED v2.0.0 \\
+Clips & 6{,}000 train / 2{,}000 validate / 2{,}000 test \\
+Classes & 10 \\
+Audio & mono, 16 kHz \\
+Features & 64-band log-mel, 25 ms window, 20 ms hop, 500 frames \\
+Backbone & 4 conv blocks + 2-layer BiGRU \\
+Default EPN & single-GRU variant \\
+Optimizer & AdamW \\
+Epochs & 40 default (60/100 for extensions) \\
+Batch size & 128 (64 wide) \\
+LR & $10^{-3}$ ($8\times10^{-4}$ wide), cosine, 100 warmup \\
+Hardware & RTX PRO 4000 Blackwell, 24 GB \\
+\bottomrule
+\end{tabular}
+\end{table}
+

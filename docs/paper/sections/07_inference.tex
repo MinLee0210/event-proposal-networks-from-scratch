@@ -1,0 +1,72 @@
+\section{Event inference}
+
+Algorithm~\ref{alg:infer} (Algorithm~1 of the paper) replaces thresholding and
+median filtering. Inputs are the presence
+probabilities $\hat p^{\pres}_{c,t}$, proposals $\hat r_{c,t}$, a maximum
+$k$ events per class (default 15), and the $m$ most active classes (default all).
+For each selected class:
+\begin{enumerate}
+\item sort frames by presence;
+\item take the unprocessed frame $t$ with the highest presence; its proposal
+      $\hat r_{c,t}$ is the candidate;
+\item set its event score $\sigma$ to the mean presence over the proposal;
+\item emit $(c,\;t-\hat d^{\on},\;t+\hat d^{\off},\;\sigma)$;
+\item suppress every proposal overlapping the chosen interval;
+\item repeat until $k$ events or no proposals remain.
+\end{enumerate}
+This is a non-maximum-suppression-like procedure. It is not differentiable; it
+only converts learned proposals into a final event set.
+
+The baseline is the usual frame-wise post-processing:
+\begin{equation}
+\tilde p_t
+=
+\median\left(p_{t-\lfloor L/2\rfloor},\ldots,p_{t+\lfloor L/2\rfloor}\right),
+\end{equation}
+followed by threshold $\tau$ and grouping of consecutive active frames.
+
+\begin{algorithm}[t]
+\caption{Event inference (Algorithm~1 of the paper)}
+\label{alg:infer}
+\begin{algorithmic}[1]
+\Require presence $\hat p^{\pres}_{c,t}$; proposals $\hat r_{c,t}$;
+         max events per class $k$; max classes $m$
+\Ensure event set $\mathcal{E}$
+\State $s_c \gets \operatorname{mean}_t \hat p^{\pres}_{c,t}$ for every class
+\State select the $m$ classes with the largest $s_c$
+\State $\mathcal{E} \gets \emptyset$
+\For{each selected class $c$}
+  \State order frames by $\hat p^{\pres}_{c,t}$ descending
+  \State $removed_t \gets \mathrm{false}$ for all $t$
+  \State $\mathcal{E}_c \gets \emptyset$ \Comment{events selected for class $c$}
+  \For{$t$ in that order}
+    \If{$removed_t$ or $|\mathcal{E}_c| \ge k$}
+      \State continue
+    \EndIf
+    \State $r \gets [t-\hat d^{\on}_{c,t},\,t+\hat d^{\off}_{c,t}]$,
+           clipped to $[0,T_{\mathrm{ds}}]$
+    \State $\sigma \gets \operatorname{mean}_{u\in r}\hat p^{\pres}_{c,u}$
+    \State $\mathcal{E}_c \gets \mathcal{E}_c\cup\{(c,r,\sigma)\}$
+    \State mark every proposal overlapping $r$ as removed
+  \EndFor
+  \State $\mathcal{E} \gets \mathcal{E}\cup\mathcal{E}_c$
+\EndFor
+\State \Return $\mathcal{E}$
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm~\ref{alg:infer} is greedy and has no learned parameters. The score
+$\sigma$ is the mean presence over the chosen interval, so a proposal that
+covers a confident event ranks above one that covers a weak region. Suppressing
+every overlapping proposal keeps the output set small, but it also means two
+same-class events that overlap in time collapse into one. The method cannot
+represent same-class polyphony, and the evaluation keeps the raw annotations so
+those events still count as false negatives.
+
+The inference step is also the place where $k$ and $m$ enter. A small $k$
+limits repeated detections, while a small $m$ skips classes with low mean
+presence. In our runs, EPN inference and a tuned median filter were close on
+the test split (43.58 vs 43.00 PSDS1 for the wide model), which suggests that
+presence quality limits this reproduction more than the choice of event
+extraction.
+
