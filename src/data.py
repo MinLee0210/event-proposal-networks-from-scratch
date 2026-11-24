@@ -88,6 +88,9 @@ def discover_split(
 
     rows = []
     for ann_path in sorted(ann_dir.glob("*.txt")):
+        # macOS archives contain AppleDouble metadata files named "._*.txt".
+        if ann_path.name.startswith("._"):
+            continue
         audio_path = audio_dir / f"{ann_path.stem}.wav"
         if not audio_path.exists():
             raise FileNotFoundError(f"audio missing for {ann_path.name}: {audio_path}")

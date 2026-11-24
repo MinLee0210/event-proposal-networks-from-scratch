@@ -125,7 +125,10 @@ class SEDLoss(nn.Module):
         Returns:
             A dict with scalar tensors `loss`, `pres`, `ool` and `iou`.
         """
-        pres = presence_probability(outputs).clamp(EPS, 1.0 - EPS)
+        # Losses are computed in float32 even when the model forward runs under
+        # autocast: BCE/focal are unsafe in fp16 and the boundary losses are
+        # sensitive to small probability differences.
+        pres = presence_probability(outputs).float().clamp(EPS, 1.0 - EPS)
         y_pres = batch["pres"].float()
         if mask is None:
             mask_frames = torch.ones_like(y_pres)
@@ -145,10 +148,16 @@ class SEDLoss(nn.Module):
                 raise KeyError("use_ool=True requires a RED model")
             focal_mask = None if mask is None else mask.unsqueeze(1)
             loss_on = focal_loss(
-                outputs["onset"], batch["on"].float(), self.focal_alpha, focal_mask
+                outputs["onset"].float(),
+                batch["on"].float(),
+                self.focal_alpha,
+                focal_mask,
             )
             loss_off = focal_loss(
-                outputs["offset"], batch["off"].float(), self.focal_alpha, focal_mask
+                outputs["offset"].float(),
+                batch["off"].float(),
+                self.focal_alpha,
+                focal_mask,
             )
             loss_ool = loss_on + loss_off
 
@@ -157,8 +166,8 @@ class SEDLoss(nn.Module):
             if "don" not in outputs or "doff" not in outputs:
                 raise KeyError("EPN loss requires EPN outputs")
             loss_iou = iou_loss(
-                outputs["don"],
-                outputs["doff"],
+                outputs["don"].float(),
+                outputs["doff"].float(),
                 batch["don"].float(),
                 batch["doff"].float(),
                 y_pres * mask_frames,

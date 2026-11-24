@@ -243,8 +243,9 @@ def train_per_epoch(
         }
         with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
             outputs = model(mel)
-            losses = criterion(outputs, targets, mask=None)
-            loss = losses["loss"]
+        # Compute BCE/focal/IoU outside autocast: BCE is unsafe in fp16.
+        losses = criterion(outputs, targets, mask=None)
+        loss = losses["loss"]
 
         scaler.scale(loss / accum_steps).backward()
         pending.append(loss.item())
