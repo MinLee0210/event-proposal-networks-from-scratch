@@ -100,12 +100,12 @@ def color_for(run: str) -> str:
         return COLORS["baseline"]
     if "ensemble" in run:
         return "#0072B2"
+    if "mixup" in run:
+        return COLORS["extension"]
     if "xl" in run or "large" in run or "wide" in run:
         return COLORS["wide"]
     if "iou" in run or "epn" in run:
         return COLORS["method"]
-    if "mixup" in run:
-        return COLORS["extension"]
     return COLORS["muted"]
 
 
@@ -193,17 +193,24 @@ def main() -> None:
 
     # --- Figure: post-processing comparison ---
     pp_labels = ["Default\nEPN", "Default\nmedian", "Wide\nEPN", "Wide\nmedian"]
+
+    def tuned_median(run: str) -> dict:
+        path = ROOT / "results" / run / "test_median_tuned.json"
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    full_med = tuned_median("crnn_red_epn_urbansed")
+    wide_med = tuned_median("crnn_large_urbansed")
     pp_psds1 = [
         100 * metrics("crnn_red_epn_urbansed")["psds1"],
-        25.62,
+        100 * full_med.get("psds1", 0.0),
         100 * metrics("crnn_large_urbansed")["psds1"],
-        43.00,
+        100 * wide_med.get("psds1", 0.0),
     ]
     pp_collar = [
         100 * metrics("crnn_red_epn_urbansed")["collar_f1"],
-        11.56,
+        100 * full_med.get("collar_f1", 0.0),
         100 * metrics("crnn_large_urbansed")["collar_f1"],
-        30.24,
+        100 * wide_med.get("collar_f1", 0.0),
     ]
     fig, ax = plt.subplots(figsize=(4.8, 3.2))
     x = np.arange(len(pp_labels))

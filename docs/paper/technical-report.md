@@ -504,9 +504,9 @@ Collar-F1 is threshold-dependent; PSDS1/PSDS2 are not.
 
 ## 10. Reproduction results
 
-Test split, 40 epochs:
+Test split; epochs vary (40/60/100):
 
-| Run | PSDS1 | PSDS2 | collar-F1 | frame-F1 |
+| Run | PSDS1@0.5 | PSDS2 | collar-F1 | frame-F1 |
 |---|---:|---:|---:|---:|
 | BL: frame BCE + median | 36.67 | 73.13 | 26.11 | 59.14 |
 | +RED | 37.16 | 71.43 | 26.47 | 59.01 |
@@ -516,9 +516,9 @@ Test split, 40 epochs:
 | +EPN, λ_iou=0.5 | 35.42 | 69.83 | 21.39 | 55.17 |
 | Wide model, 40 ep | 43.58 | 73.73 | 28.12 | 62.30 |
 | Wide model, 100 ep | 44.28 | 70.77 | 31.50 | 63.16 |
-| Wide, OOL=10 | 42.97 | 72.62 | 28.87 | 61.47 |
-| XL model | 45.02 | 72.38 | 31.98 | 63.56 |
-| Wide + mild mixup | 45.77 | 76.11 | 30.63 | 64.06 |
+| Wide, OOL=10, 60 ep | 42.97 | 72.62 | 28.87 | 61.47 |
+| XL model, 60 ep | 45.02 | 72.38 | 31.98 | 63.56 |
+| Wide + mild mixup, 60 ep | 45.77 | 76.11 | 30.63 | 64.06 |
 | XL + class-wise median | 44.05 | 73.28 | 32.16 | 63.56 |
 | Ensemble: 3 models | 46.81 | 75.17 | 30.77 | — |
 | **Ensemble: 4 models** | **47.73** | **76.74** | **30.99** | — |
@@ -528,6 +528,12 @@ Test split, 40 epochs:
 ![IoU and post-processing](figures/fig_iou_sweep.png)
 
 ![Training curves](figures/fig_training_curves.png)
+
+The central result is negative: at the paper's default λ_iou=2 the full method
+scores 25.87 PSDS1 against the 36.67 baseline, and at λ_iou=0.5 it reaches 35.42
+but still does not beat the baseline. A tuned median filter and EPN inference
+are close on the same model. Capacity, longer training, mild mixup and
+ensembling provide the gains shown below.
 
 Main observations:
 
@@ -596,6 +602,18 @@ Results of these experiments will be added to this report and to
 | Collar-F1 | Event F1 with a tolerance around boundaries. |
 | MF | Median filtering. |
 | SEBB | Sound Event Bounding Boxes, a strong post-processing baseline. |
+
+## 12. Conclusion
+
+RED provides a clean probabilistic bridge from boundary conditionals to
+presence, onset and offset probabilities. EPN turns those probabilities into
+duration proposals, and the inference step converts them into events without a
+median-filter grid. On URBAN-SED, the boundary losses did not beat a strong
+frame-wise baseline at the weights tested. Capacity, longer training, mild
+augmentation and probability ensembling produced the gains. The best
+configuration is the four-model ensemble at 47.73 PSDS1 and 76.74 PSDS2. These
+results describe URBAN-SED and should not be read as evidence about AudioSet
+Strong.
 
 ## References
 

@@ -2,7 +2,7 @@
 
 | Document | Contents |
 |---|---|
-| [`technical-report.pdf`](technical-report.pdf) | Compiled technical report (7 pages) |
+| [`technical-report.pdf`](technical-report.pdf) | Compiled technical report (12 pages) |
 | [`technical-report.tex`](technical-report.tex) | LaTeX source for the report |
 | [`technical-report.md`](technical-report.md) | Markdown version of the report |
 
