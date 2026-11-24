@@ -145,6 +145,7 @@ def _optimizer_step(
     epoch: int,
     log_every: int,
     grad_clip: float,
+    pending_components: Optional[list[dict]] = None,
 ) -> tuple[int, float]:
     """Apply one accumulated update and notify step-level callbacks.
 
@@ -154,6 +155,7 @@ def _optimizer_step(
         callbacks: Active callbacks.
         ctx: Training context.
         pending_losses: Loss values accumulated since the last step.
+        pending_components: Per-step loss component dicts for the same window.
         step: Current global step.
         epoch: Current epoch.
         log_every: Logging interval in steps.
@@ -173,7 +175,15 @@ def _optimizer_step(
     optimizer.zero_grad()
     step += 1
     avg_loss = sum(pending_losses) / len(pending_losses)
-    state = TrainerState(step=step, train_loss=avg_loss, epoch=epoch)
+    extra = {}
+    if pending_components:
+        keys = pending_components[0].keys()
+        extra = {
+            f"loss_{key}": sum(row[key] for row in pending_components)
+            / len(pending_components)
+            for key in keys
+        }
+    state = TrainerState(step=step, train_loss=avg_loss, epoch=epoch, extra=extra)
     for cb in callbacks:
         cb.on_step_end(ctx, state)
     if step % log_every == 0 or step == 1:
@@ -220,6 +230,7 @@ def train_per_epoch(
     """
     model.train()
     epoch_losses, pending = [], []
+    pending_components: list[dict] = []
     component_sums = {"pres": 0.0, "ool": 0.0, "iou": 0.0}
     component_count = 0
     optimizer.zero_grad()
@@ -249,9 +260,12 @@ def train_per_epoch(
 
         scaler.scale(loss / accum_steps).backward()
         pending.append(loss.item())
+        pending_components.append(
+            {key: float(losses[key].detach()) for key in component_sums}
+        )
         component_count += 1
         for key in component_sums:
-            component_sums[key] += float(losses[key].item())
+            component_sums[key] += float(losses[key].detach())
 
         if len(pending) >= accum_steps:
             step, avg_loss = _optimizer_step(
@@ -264,9 +278,11 @@ def train_per_epoch(
                 epoch,
                 log_every,
                 grad_clip,
+                pending_components,
             )
             epoch_losses.append(avg_loss)
             pending = []
+            pending_components = []
 
     if pending:
         step, avg_loss = _optimizer_step(
@@ -279,6 +295,7 @@ def train_per_epoch(
             epoch,
             log_every,
             grad_clip,
+            pending_components,
         )
         epoch_losses.append(avg_loss)
 

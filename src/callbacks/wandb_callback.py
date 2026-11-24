@@ -102,6 +102,7 @@ class WandbCallback(Callback):
 
     def on_step_end(self, ctx: TrainContext, state: TrainerState) -> None:
         metrics = {"loss": state.train_loss}
+        metrics.update(state.extra)
         if ctx is not None and ctx.optimizer.param_groups:
             metrics["lr"] = ctx.optimizer.param_groups[0]["lr"]
         self.log_metrics(metrics, step=state.step, prefix="train")
