@@ -50,8 +50,19 @@ gain and how sensitive the method is to inference settings.
 ## Results
 
 - EDA summary: [`docs/analysis/2026-11-23/eda/summary.md`](analysis/2026-11-23/eda/summary.md)
-- One-epoch real-data sanity: PSDS1 0.99, PSDS2 12.98, collar-F1 0.75 (test).
-  Not converged; see `docs/EXPERIMENTS.md`.
-- Full 40-epoch run: _pending; results will be written to
-  `results/crnn_red_epn_urbansed/test_metrics.json` and linked here._
-- Component study (`BL → +RED → +OOL → +EPN`): _pending._
+- Full report: [`docs/reports/2026-11-24/urbansed-crnn/report.md`](reports/2026-11-24/urbansed-crnn/report.md)
+- Component study (test PSDS1):
+  - BL: 36.67
+  - +RED: 37.16
+  - +OOL: 35.93
+  - +EPN, λ_iou=2: 25.87
+  - +EPN, λ_iou=1.0: 33.08
+  - +EPN, λ_iou=0.5: 35.42
+- Extensions: wide-40 43.58, wide-100 44.28, XL 45.02, wide + mild mixup
+  **45.77** PSDS1; synthetic mixup p=0.5 34.22.
+- Best overall: four-model ensemble (mild mixup, XL, wide-100, wide-OOL10)
+  **47.73 PSDS1 / 76.74 PSDS2 / 30.99 collar-F1**.
+- Interpretation: RED alone matches the baseline; OOL and the default IoU
+  weight hurt on URBAN-SED; capacity, longer training, mild augmentation and
+  ensembling help. EPN inference and tuned median filtering are close, so
+  presence quality is the larger limit.
