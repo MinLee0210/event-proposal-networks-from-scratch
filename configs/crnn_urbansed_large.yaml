@@ -46,7 +46,7 @@ augment:
 
 loss:
   lambda_ool: 100.0
-  lambda_iou: 2.0
+  lambda_iou: 0.5
   focal_alpha: 2.0
 
 eval:

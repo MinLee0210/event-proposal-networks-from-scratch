@@ -43,6 +43,24 @@ command, result, and decision.
   These are one-epoch numbers and are not comparable to the paper.
 - **Decision:** pipeline validated; run the full 40-epoch budget.
 
+## 2026-11-24 — full suite on the VM (RTX PRO 4000 Blackwell)
+
+- **Hypothesis:** the paper's components improve over frame BCE + median.
+- **Configs:** all `configs/crnn_*.yaml`; report in
+  `docs/reports/2026-11-24/urbansed-crnn/`.
+- **Result (test PSDS1 / PSDS2 / collar-F1):**
+  - BL: 36.67 / 73.13 / 26.11
+  - +RED: 37.16 / 71.43 / 26.47
+  - +OOL: 35.93 / 71.26 / 26.57
+  - +EPN λ_iou=2: 25.87 / 51.41 / 13.57
+  - +EPN λ_iou=1: 33.08 / 66.13 / 20.13
+  - +EPN λ_iou=0.5: 35.42 / 69.83 / 21.39
+  - wide model: **43.58 / 73.73 / 28.12**
+  - synthetic mixup: 34.22 / 67.80 / 20.99
+- **Decision:** λ_iou=2 is too high for URBAN-SED; RED alone is competitive;
+  the wide model is the best configuration. Follow up with per-class EPN,
+  λ_ool tuning and 100-epoch runs.
+
 ## 2026-11-23 — component study on URBAN-SED
 
 - **Hypothesis:** each paper component contributes monotonically:
@@ -57,7 +75,8 @@ command, result, and decision.
   done
   ```
 
-- **Result:** _pending — full runs not yet executed. Smoke test passes (PSDS1 and PSDS2 are finite)._
+- **Result:** see the 2026-11-24 entry and the report; the ordering did not hold
+  for OOL/EPN at the default weights. The λ_iou sweep is in the report.
 - **Decision:** _pending._
 
 ## 2026-11-23 — median-filter vs EPN inference

@@ -11,7 +11,7 @@ Two model families share one convolutional-recurrent backbone:
 consume RED/EPN outputs without knowing which ablation produced them.
 """
 
-from typing import Optional
+from typing import Optional, List
 
 import torch
 import torch.nn as nn
@@ -67,7 +67,7 @@ class CRNNBackbone(nn.Module):
         """
         super().__init__()
         self.cfg = cfg
-        blocks = []
+        blocks: List[ConvBlock] = []
         in_ch = 1
         for i, out_ch in enumerate(cfg.cnn_channels):
             blocks.append(ConvBlock(in_ch, out_ch, dropout=0.0 if i == 0 else 0.1))

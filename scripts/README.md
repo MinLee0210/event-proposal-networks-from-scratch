@@ -27,6 +27,7 @@ scripts/
 | `training/tune_postprocessing.py` | Grid-search median-filter length/threshold or EPN `k`/`m` on validation |
 | `training/run_ablations.sh` | Run BL / +RED / +OOL / +EPN sequentially |
 | `training/run_extensions.sh` | Run the wider-model and synthetic-mixup extensions |
+| `training/make_report.py` | Build `summary.csv` / `report.md` from `results/*/test_metrics.json` |
 
 Typical order:
 

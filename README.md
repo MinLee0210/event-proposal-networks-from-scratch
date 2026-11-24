@@ -30,9 +30,10 @@ baseline, and the paper’s component ablation (`BL → +RED → +OOL → +EPN`)
 | Median-filter baseline | implemented |
 | URBAN-SED download + preprocessing | working; see `data/processed/urbansed/` |
 | End-to-end synthetic smoke run | passing (`scripts/training/smoke_test.py`) |
-| Full URBAN-SED training (40 epochs) | deferred to the next VM; config ready |
-| One-epoch real-data sanity | PSDS1 0.99 / PSDS2 12.98 / collar-F1 0.75 (test, not converged) |
-| W&B-logged 300-clip sample (6 epochs) | PSDS1 0.72 / PSDS2 0.00 / collar-F1 0.00 (test, not converged) |
+| Full URBAN-SED suite (40 epochs, VM GPU) | completed; see the [results report](docs/reports/2026-11-24/urbansed-crnn/report.md) |
+| Baseline / +RED / +OOL / +EPN | 36.67 / 37.16 / 35.93 / 25.87 PSDS1 (test) |
+| λ_iou sweep (0.5 / 1.0) | 35.42 / 33.08 PSDS1 (test) |
+| Extensions (wide model / mixup) | **43.58** / 34.22 PSDS1 (test) |
 
 No paper-scale numbers are claimed yet. The tables below are filled only from
 actual runs; see `results/` and `docs/EXPERIMENTS.md`.
@@ -100,6 +101,8 @@ A 300-clip, 6-epoch sample run is logged at
 | `configs/crnn_sample.yaml` | 300-clip real URBAN-SED sample, W&B on | EPN |
 | `configs/crnn_urbansed_large.yaml` | wider CRNN/EPN (~4M params) | EPN |
 | `configs/crnn_urbansed_mixup.yaml` | max-mix synthetic event mixing + SpecAugment | EPN |
+| `configs/crnn_urbansed_iou05.yaml` | full method, `λ_iou = 0.5` | EPN |
+| `configs/crnn_urbansed_iou1.yaml` | full method, `λ_iou = 1.0` | EPN |
 
 Architecture is in `src/config.py` (`SEDConfig`); training, loss weights and
 post-processing are in `configs/*.yaml`.
@@ -177,6 +180,10 @@ the paper. Deliberate scope choices:
 
 - CRNN backbone only; no ATST-F / BEATs / MN-GRU.
 - Frame-BCE + median filter baseline; SEBB and HSM3 are not reimplemented.
+- **The wide model is the best configuration in this reproduction.** A
+  32/64/128/256-channel CRNN with a 256-wide BiGRU reaches 43.58 PSDS1 on test,
+  above the 36.67 frame-BCE baseline. The default ~1M model with `λ_iou=2`
+  underperforms; see the report for the λ_iou sweep and analysis.
 - **Default EPN is the single-GRU variant.** The paper uses per-class GRUs for
   AS-Strong-10 and the single GRU for the full 447 classes. On Apple-Silicon
   MPS the per-class variant launches 10 GRUs per forward and is ~12× slower; the
