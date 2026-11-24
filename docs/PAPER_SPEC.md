@@ -1,8 +1,6 @@
 # Paper Spec — reproduction report
 
 ## Venue & format
-- **Template:** IEEEtran conference (same 2-column style as the original paper).
-- **Length:** 4–6 pages excluding references.
 - **Author block:** _fill in before submission._
 
 ## Paper type
