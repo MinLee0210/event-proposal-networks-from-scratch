@@ -28,6 +28,7 @@ from src.callbacks import (
 )
 from src.callbacks.wandb_callback import WandbCallback
 from src.data import SEDDataset, collate, load_meta
+from src.modules.augment import mixup_batch, spec_augment
 from src.modules.loss import SEDLoss
 from src.modules.model import build_model
 from src.pipelines._utils import announce_training
@@ -194,6 +195,7 @@ def train_per_epoch(
     epoch: int,
     log_every: int,
     grad_clip: float,
+    train_cfg_augment: Optional[dict] = None,
 ) -> tuple[float, dict[str, float], int]:
     """Run one training epoch.
 
@@ -222,8 +224,19 @@ def train_per_epoch(
     component_count = 0
     optimizer.zero_grad()
 
+    augment = train_cfg_augment or {}
     for batch in loader:
+        if augment.get("mixup_prob", 0.0) > 0:
+            batch = mixup_batch(batch, prob=float(augment["mixup_prob"]))
         mel = batch["mel"].float().to(device)
+        if augment.get("time_masks", 0) or augment.get("freq_masks", 0):
+            mel = spec_augment(
+                mel,
+                time_masks=int(augment.get("time_masks", 0)),
+                time_width=int(augment.get("time_width", 50)),
+                freq_masks=int(augment.get("freq_masks", 0)),
+                freq_width=int(augment.get("freq_width", 8)),
+            )
         targets = {
             key: batch[key].float().to(device)
             for key in ("pres", "on", "off", "don", "doff")
@@ -392,6 +405,7 @@ def train(train_cfg: TrainingConfig) -> list[dict]:
             epoch,
             train_cfg.log_every,
             train_cfg.grad_clip,
+            train_cfg.augment,
         )
         record = {
             "epoch": epoch,

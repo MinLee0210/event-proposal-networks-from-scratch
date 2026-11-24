@@ -26,6 +26,7 @@ scripts/
 | `training/smoke_test.py` | Synthetic end-to-end run: generate → train → test, assert finite metrics |
 | `training/tune_postprocessing.py` | Grid-search median-filter length/threshold or EPN `k`/`m` on validation |
 | `training/run_ablations.sh` | Run BL / +RED / +OOL / +EPN sequentially |
+| `training/run_extensions.sh` | Run the wider-model and synthetic-mixup extensions |
 
 Typical order:
 

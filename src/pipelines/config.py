@@ -62,6 +62,17 @@ class TrainingConfig:
     # --- architecture overrides for SEDConfig ---
     arch: Optional[dict] = None
 
+    # --- augmentation (train only) ---
+    augment: dict = field(
+        default_factory=lambda: {
+            "mixup_prob": 0.0,
+            "time_masks": 0,
+            "time_width": 50,
+            "freq_masks": 0,
+            "freq_width": 8,
+        }
+    )
+
     # --- objective (Eq. 5) ---
     loss: dict = field(
         default_factory=lambda: {

@@ -98,6 +98,8 @@ A 300-clip, 6-epoch sample run is logged at
 | `configs/crnn_urbansed_per_class.yaml` | full method with per-class GRUs (paper config, slow) | EPN Algorithm 1 |
 | `configs/crnn_smoke.yaml` | tiny synthetic run | EPN |
 | `configs/crnn_sample.yaml` | 300-clip real URBAN-SED sample, W&B on | EPN |
+| `configs/crnn_urbansed_large.yaml` | wider CRNN/EPN (~4M params) | EPN |
+| `configs/crnn_urbansed_mixup.yaml` | max-mix synthetic event mixing + SpecAugment | EPN |
 
 Architecture is in `src/config.py` (`SEDConfig`); training, loss weights and
 post-processing are in `configs/*.yaml`.
